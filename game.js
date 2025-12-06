@@ -1,9 +1,18 @@
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 
-// Set canvas to full viewport width and 80% of viewport height
-canvas.width = window.innerWidth;
-canvas.height = window.innerHeight * 0.8;
+// FIXED internal resolution (not affected by zoom)
+const INTERNAL_WIDTH = 1920;
+const INTERNAL_HEIGHT = 1080;
+
+canvas.width = INTERNAL_WIDTH;
+canvas.height = INTERNAL_HEIGHT;
+
+// CSS scales the canvas visually (zoom-proof)
+canvas.style.width = "100vw";
+canvas.style.height = "80vh";
+canvas.style.display = "block";
+
 
 // Scale: 30px = 1m (3x larger than before)
 const SCALE = 20;
@@ -27,8 +36,8 @@ carImages[2].src = 'img/cars-motors/Volkswagen Golf Mk1 Cabriolet.png';
 
 // Level data (corrected values)
 let currentLevel = {
-    ground1Length: 17, // meters
-    ground1Height: 25, // meters
+    ground1Length: 26, // meters
+    ground1Height: 26, // meters
     gap: 10, // meters (changed from 25 to 10)
     ground2Length: 10, // meters
     ground2Height: 22 // meters (changed from 5 to 22)
@@ -55,25 +64,25 @@ let car = {
 
 function drawLevel() {
     // Clear canvas
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.clearRect(0, 0, INTERNAL_WIDTH, INTERNAL_HEIGHT);
     
-    // Calculate centered starting position
-    const totalWidth = (currentLevel.ground1Length + currentLevel.gap + currentLevel.ground2Length) * SCALE;
-    const startX = (canvas.width - totalWidth) / 2;
+    // Calculate fixed ground positions spanning full screen
+    const gapWidth = currentLevel.gap * SCALE;
+    const ground1X = 0;
+    const ground1Width = (INTERNAL_WIDTH - gapWidth) / 2;
     
-    const ground1X = startX;
-    const ground1Y = canvas.height - (currentLevel.ground1Height * SCALE);
-    const ground1Width = currentLevel.ground1Length * SCALE;
+    // Use fixed world heights independent of zoom
     const ground1Height = currentLevel.ground1Height * SCALE;
+    const ground1Y = INTERNAL_HEIGHT - ground1Height;
     
-    const ground2X = ground1X + ground1Width + (currentLevel.gap * SCALE);
-    const ground2Y = canvas.height - (currentLevel.ground2Height * SCALE);
-    const ground2Width = currentLevel.ground2Length * SCALE;
+    const ground2X = ground1Width + gapWidth;
+    const ground2Width = INTERNAL_WIDTH - ground2X;
     const ground2Height = currentLevel.ground2Height * SCALE;
+    const ground2Y = INTERNAL_HEIGHT - ground2Height;
     
-    // Update car position to be on ground 1
-    car.x = ground1X + 50;
-    car.y = ground1Y - car.height + 60; // Lower position for 3D perspective
+    // Update car position to be on ground 1 (ensure it stays within canvas)
+    car.x = Math.max(0, ground1X + 50);
+    car.y = Math.max(0, ground1Y - car.height + 60); // Lower position for 3D perspective
     
     // Draw Ground 1 (with image if loaded, otherwise solid color)
     if (ground1Img.complete && ground1Img.naturalWidth > 0) {
@@ -99,13 +108,13 @@ function drawLevel() {
     // Ground 1 cliff edge
     ctx.beginPath();
     ctx.moveTo(ground1X + ground1Width, ground1Y);
-    ctx.lineTo(ground1X + ground1Width, canvas.height);
+    ctx.lineTo(ground1X + ground1Width, INTERNAL_HEIGHT);
     ctx.stroke();
     
     // Ground 2 start edge
     ctx.beginPath();
     ctx.moveTo(ground2X, ground2Y);
-    ctx.lineTo(ground2X, canvas.height);
+    ctx.lineTo(ground2X, INTERNAL_HEIGHT);
     ctx.stroke();
     
     ctx.setLineDash([]);
@@ -117,7 +126,7 @@ function drawLevel() {
     ctx.fillText(
         `Gap: ${currentLevel.gap}m`,
         ground1X + ground1Width + (currentLevel.gap * SCALE) / 2,
-        canvas.height - 30
+        INTERNAL_HEIGHT - 30
     );
     
     // Draw ground labels
@@ -184,16 +193,6 @@ carImages.forEach((img, index) => {
 
 // Start animation immediately (will show colors until images load)
 animate();
-
-// Handle window resize
-window.addEventListener('resize', () => {
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight * 0.8;
-    
-    // Redraw immediately after resize
-    drawLevel();
-    drawCar();
-});
 
 // Car selection
 document.querySelectorAll('.car-option').forEach((option, index) => {
