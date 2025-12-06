@@ -23,11 +23,11 @@ const carImages = [
 ];
 carImages[0].src = 'img/cars-motors/motorcycle.png';
 carImages[1].src = 'img/cars-motors/car1.png';
-carImages[2].src = 'img/cars-motors/car2.png';
+carImages[2].src = 'img/cars-motors/Volkswagen Golf Mk1 Cabriolet.png';
 
 // Level data (corrected values)
 let currentLevel = {
-    ground1Length: 25, // meters
+    ground1Length: 17, // meters
     ground1Height: 25, // meters
     gap: 10, // meters (changed from 25 to 10)
     ground2Length: 10, // meters
@@ -73,7 +73,7 @@ function drawLevel() {
     
     // Update car position to be on ground 1
     car.x = ground1X + 50;
-    car.y = ground1Y - car.height;
+    car.y = ground1Y - car.height + 60; // Lower position for 3D perspective
     
     // Draw Ground 1 (with image if loaded, otherwise solid color)
     if (ground1Img.complete && ground1Img.naturalWidth > 0) {
