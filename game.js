@@ -36,6 +36,17 @@ const SCALE = 20;
 const GRAVITY = 9.8;
 const RUN_START_OFFSET = 1;
 
+const MIN_AIR_ROTATION = -Math.PI / 12;
+const MAX_AIR_ROTATION = Math.PI / 3;
+const TAKEOFF_NOSE_UP = -Math.PI / 18;
+const AIR_ROTATION_TRACK_SPEED = 5.5;
+const GROUND_ROTATION_TRACK_SPEED = 10;
+const ROTATION_CLAMP_EPSILON = 1e-3;
+
+function clamp(value, min, max) {
+    return Math.min(Math.max(value, min), max);
+}
+
 let levelMetrics = null;
 
 let physicsCalculationsPanel = null;
@@ -86,7 +97,7 @@ let currentLevel = {
 // Car data
 let selectedCar = 1; // Default: Sports Car
 const cars = [
-    { name: "Motorcycle", acceleration: 10.1, mass: 1200 },
+    { name: "Motorcycle", acceleration: 1, mass: 1200 },
     { name: "Sports Car", acceleration: 6.5, mass: 1400 },
     { name: "Supercar", acceleration: 12, mass: 1500 }
 ];
@@ -100,7 +111,9 @@ let car = {
     lengthMeters: 240 / SCALE,
     velocity: 0,
     velocityY: 0,
-    isJumping: false
+    isJumping: false,
+    rotation: 0,
+    rotationVelocity: 0
 };
 
 const DEFAULT_CAR_ASPECT = 120 / 240;
@@ -224,12 +237,51 @@ function resetSimulationState() {
     simulation.velocityY = 0;
     simulation.elapsedTime = 0;
     simulation.timeSinceLaunch = 0;
+
+    car.rotation = 0;
+    car.rotationVelocity = 0;
 }
 
 function startSimulation() {
     resetSimulationState();
     simulation.isRunning = true;
     lastFrameTime = null;
+}
+
+function getSurfaceAngle(worldX) {
+    const gapStart = currentLevel.ground1Length;
+    const gapEnd = gapStart + currentLevel.gap;
+    const dropHeight = Math.max(0, currentLevel.ground1Height - currentLevel.ground2Height);
+    const carFront = worldX + getCarLengthMeters();
+
+    if (worldX >= gapEnd - getCarLengthMeters()) {
+        return 0;
+    }
+
+    if (carFront <= gapStart) {
+        return 0;
+    }
+
+    if (worldX >= gapEnd) {
+        return 0;
+    }
+
+    if (currentLevel.gap <= 0) {
+        return 0;
+    }
+
+    const slopeAngle = -Math.atan2(dropHeight, currentLevel.gap);
+    return slopeAngle;
+}
+
+function computeAirRotationTarget() {
+    const vx = simulation.velocityX;
+    const vy = simulation.velocityY;
+    if (Math.abs(vx) < ROTATION_CLAMP_EPSILON && Math.abs(vy) < ROTATION_CLAMP_EPSILON) {
+        return car.rotation;
+    }
+
+    return Math.atan2(vy, vx);
 }
 
 function handleLandingResult(success, carFrontX, ground2Start, ground2End, dropToGround2) {
@@ -276,6 +328,8 @@ function handleLandingResult(success, carFrontX, ground2Start, ground2End, dropT
         }
     }
 
+    car.rotationVelocity = 0;
+    car.rotation = clamp(getSurfaceAngle(simulation.worldX), MIN_AIR_ROTATION, MAX_AIR_ROTATION);
     lastPhysicsData = actualData;
     refreshPhysicsDisplays(actualData, statusText);
 }
@@ -318,6 +372,9 @@ function updateSimulation(delta) {
             simulation.worldX = takeoffLeftEdge;
             simulation.hasLaunched = true;
             simulation.timeSinceLaunch = 0;
+
+            car.rotation = clamp(car.rotation + TAKEOFF_NOSE_UP, MIN_AIR_ROTATION, MAX_AIR_ROTATION);
+            car.rotationVelocity = 0;
         }
     } else {
         simulation.timeSinceLaunch += delta;
@@ -383,13 +440,49 @@ function updateCarScreenPosition() {
 }
 
 function drawCar() {
-    if (carImages[selectedCar].complete && carImages[selectedCar].naturalWidth > 0) {
-        ctx.drawImage(carImages[selectedCar], car.x, car.y, car.width, car.height);
+    const centerX = car.x + car.width / 2;
+    const centerY = car.y + car.height / 2;
+    const imageReady = carImages[selectedCar].complete && carImages[selectedCar].naturalWidth > 0;
+
+    ctx.save();
+    ctx.translate(centerX, centerY);
+    ctx.rotate(car.rotation);
+
+    if (imageReady) {
+        ctx.drawImage(carImages[selectedCar], -car.width / 2, -car.height / 2, car.width, car.height);
     } else {
-        // Fallback rectangle
+        // Fallback rectangle matches rotated draw path
         ctx.fillStyle = '#FF5722';
-        ctx.fillRect(car.x, car.y, car.width, car.height);
+        ctx.fillRect(-car.width / 2, -car.height / 2, car.width, car.height);
     }
+
+    ctx.restore();
+}
+
+function updateCarRotation(delta) {
+    const isAirborne = simulation.hasLaunched && !simulation.hasLanded && !simulation.hasFinished;
+    const previousRotation = car.rotation;
+
+    let targetRotation = 0;
+
+    if (isAirborne) {
+        targetRotation = computeAirRotationTarget();
+    } else if (simulation.isRunning || simulation.hasLanded) {
+        targetRotation = getSurfaceAngle(simulation.worldX);
+    }
+
+    targetRotation = clamp(targetRotation, MIN_AIR_ROTATION, MAX_AIR_ROTATION);
+
+    const trackingSpeed = isAirborne ? AIR_ROTATION_TRACK_SPEED : GROUND_ROTATION_TRACK_SPEED;
+    const blend = 1 - Math.exp(-trackingSpeed * delta);
+    car.rotation += (targetRotation - car.rotation) * blend;
+
+    if (Math.abs(car.rotation) < ROTATION_CLAMP_EPSILON) {
+        car.rotation = 0;
+    }
+
+    car.rotation = clamp(car.rotation, MIN_AIR_ROTATION, MAX_AIR_ROTATION);
+    car.rotationVelocity = (car.rotation - previousRotation) / Math.max(delta, 1e-4);
 }
 
 function animate(timestamp) {
@@ -399,6 +492,7 @@ function animate(timestamp) {
 
     const deltaSeconds = (timestamp - lastFrameTime) / 1000;
     updateSimulation(deltaSeconds);
+    updateCarRotation(deltaSeconds);
 
     drawLevel();
     updateCarScreenPosition();
