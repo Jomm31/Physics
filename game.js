@@ -30,25 +30,47 @@ function resizeCanvas() {
 window.addEventListener('resize', resizeCanvas);
 resizeCanvas();
 
-
-// Scale: 30px = 1m (3x larger than before)
+// -----------------------------------------------------------------------------
+// Physics configuration (all units in meters, seconds, radians)
+// -----------------------------------------------------------------------------
 const SCALE = 20;
 const GRAVITY = 9.8;
 const RUN_START_OFFSET = 1;
 
 const MIN_AIR_ROTATION = -Math.PI / 12;
 const MAX_AIR_ROTATION = Math.PI / 3;
-const TAKEOFF_NOSE_UP = -Math.PI / 18;
-const AIR_ROTATION_TRACK_SPEED = 5.5;
-const GROUND_ROTATION_TRACK_SPEED = 10;
-const ROTATION_CLAMP_EPSILON = 1e-3;
+const INITIAL_AIR_SPIN = Math.PI / 10;          // slight initial wobble when leaving ground
+const AIR_SPIN_NOISE = Math.PI * 0.25;          // random spin impulse per second while airborne
+const MAX_SAFE_LANDING_ANGLE = Math.PI / 10;    // land successfully only if |rotation| <= ~18°
+const LANDING_PENETRATION_TOLERANCE = 0.4;      // extra vertical tolerance before counting as floor clip
+const FRICTION_DECEL = 4;                       // simple ground friction after a safe landing (m/s²)
 
+const ANGULAR_DAMPING = 0.92;                   // mild damping so spin does not explode
+const ANGULAR_DAMPING_DT = 60;                  // reference FPS for damping scaling
+
+const NO_GROUND = Number.POSITIVE_INFINITY;
+
+const TIPPING_STIFFNESS = 18;                   // spring strength pulling rotation toward target while tipping
+const TIPPING_DAMPING = 6;                      // damping for tipping angular velocity
+const TIPPING_RELEASE_ANGLE = Math.PI / 3;      // release into free fall once nose dips ~60°
+const MAX_TIPPING_ANGULAR_VELOCITY = Math.PI;   // cap tipping angular speed (rad/s)
+const PIVOT_BLEND_RATE = 3;                     // blend per second from rear pivot to center once airborne
+
+// -----------------------------------------------------------------------------
+// Helpers
+// -----------------------------------------------------------------------------
 function clamp(value, min, max) {
     return Math.min(Math.max(value, min), max);
 }
 
-let levelMetrics = null;
+function toDegrees(rad) {
+    return rad * (180 / Math.PI);
+}
 
+// -----------------------------------------------------------------------------
+// Global state
+// -----------------------------------------------------------------------------
+let levelMetrics = null;
 let physicsCalculationsPanel = null;
 let lastPhysicsData = null;
 
@@ -58,66 +80,71 @@ const simulation = {
     hasFinished: false,
     hasLanded: false,
     success: null,
-    worldX: 0,
-    worldY: 0,
-    velocityX: 0,
-    velocityY: 0,
     elapsedTime: 0,
-    timeSinceLaunch: 0
+    timeSinceLaunch: 0,
+    takeoffWorldX: 0,
+    takeoffVelocity: 0,
+    landDropHeight: 0,
+    landTrackEnd: 0
 };
 
-let lastFrameTime = null;
+// Drawing + physics state for the car
+let car = {
+    x: 0,
+    y: 0,
+    width: 240,
+    height: 120,
+    lengthMeters: 240 / SCALE,
+    worldX: RUN_START_OFFSET,
+    worldY: 0,
+    vx: 0,
+    vy: 0,
+    ax: 0,
+    rotation: 0,
+    angularVelocity: 0
+};
 
-// Load ground images
+const DEFAULT_CAR_ASPECT = 120 / 240;
+
+// -----------------------------------------------------------------------------
+// Assets
+// -----------------------------------------------------------------------------
 const ground1Img = new Image();
 ground1Img.src = 'img/Ground1.png';
 
 const ground2Img = new Image();
 ground2Img.src = 'img/Ground2.png';
 
-// Load car images
 const carImages = [
-    new Image(), // Motorcycle
-    new Image(), // Sports Car
-    new Image()  // Supercar
+    new Image(),
+    new Image(),
+    new Image()
 ];
 carImages[0].src = 'img/cars-motors/motorcycle.png';
 carImages[1].src = 'img/cars-motors/car1.png';
 carImages[2].src = 'img/cars-motors/Volkswagen Golf Mk1 Cabriolet.png';
 
-// Level data (corrected values)
+// -----------------------------------------------------------------------------
+// Level + vehicle data
+// -----------------------------------------------------------------------------
 let currentLevel = {
-    ground1Length: 26, // meters
-    ground1Height: 26, // meters
-    gap: 10, // meters (changed from 25 to 10)
-    ground2Length: 10, // meters
-    ground2Height: 22 // meters (changed from 5 to 22)
+    ground1Length: 26,
+    ground1Height: 26,
+    gap: 10,
+    ground2Length: 10,
+    ground2Height: 22
 };
 
-// Car data
-let selectedCar = 1; // Default: Sports Car
+let selectedCar = 1;
 const cars = [
-    { name: "Motorcycle", acceleration: 1, mass: 1200 },
-    { name: "Sports Car", acceleration: 6.5, mass: 1400 },
+    { name: "Motorcycle", acceleration: 3, mass: 1200 },
+    { name: "Sports Car", acceleration: 3, mass: 1400 },
     { name: "Supercar", acceleration: 12, mass: 1500 }
 ];
 
-// Car position (3x larger)
-let car = {
-    x: 0,
-    y: 0,
-    width: 240, // Updated dynamically each frame
-    height: 120, // Updated dynamically each frame
-    lengthMeters: 240 / SCALE,
-    velocity: 0,
-    velocityY: 0,
-    isJumping: false,
-    rotation: 0,
-    rotationVelocity: 0
-};
-
-const DEFAULT_CAR_ASPECT = 120 / 240;
-
+// -----------------------------------------------------------------------------
+// Level rendering + layout
+// -----------------------------------------------------------------------------
 function computeLevelMetrics() {
     const totalHorizontalMeters = currentLevel.ground1Length + currentLevel.gap + currentLevel.ground2Length;
     const horizontalScale = totalHorizontalMeters > 0 ? INTERNAL_WIDTH / totalHorizontalMeters : SCALE;
@@ -221,177 +248,11 @@ function drawLevel() {
     );
 }
 
+// -----------------------------------------------------------------------------
+// Car rendering helpers
+// -----------------------------------------------------------------------------
 function getCarLengthMeters() {
     return car.lengthMeters;
-}
-
-function resetSimulationState() {
-    simulation.isRunning = false;
-    simulation.hasLaunched = false;
-    simulation.hasFinished = false;
-    simulation.hasLanded = false;
-    simulation.success = null;
-    simulation.worldX = RUN_START_OFFSET;
-    simulation.worldY = 0;
-    simulation.velocityX = 0;
-    simulation.velocityY = 0;
-    simulation.elapsedTime = 0;
-    simulation.timeSinceLaunch = 0;
-
-    car.rotation = 0;
-    car.rotationVelocity = 0;
-}
-
-function startSimulation() {
-    resetSimulationState();
-    simulation.isRunning = true;
-    lastFrameTime = null;
-}
-
-function getSurfaceAngle(worldX) {
-    const gapStart = currentLevel.ground1Length;
-    const gapEnd = gapStart + currentLevel.gap;
-    const dropHeight = Math.max(0, currentLevel.ground1Height - currentLevel.ground2Height);
-    const carFront = worldX + getCarLengthMeters();
-
-    if (worldX >= gapEnd - getCarLengthMeters()) {
-        return 0;
-    }
-
-    if (carFront <= gapStart) {
-        return 0;
-    }
-
-    if (worldX >= gapEnd) {
-        return 0;
-    }
-
-    if (currentLevel.gap <= 0) {
-        return 0;
-    }
-
-    const slopeAngle = -Math.atan2(dropHeight, currentLevel.gap);
-    return slopeAngle;
-}
-
-function computeAirRotationTarget() {
-    const vx = simulation.velocityX;
-    const vy = simulation.velocityY;
-    if (Math.abs(vx) < ROTATION_CLAMP_EPSILON && Math.abs(vy) < ROTATION_CLAMP_EPSILON) {
-        return car.rotation;
-    }
-
-    return Math.atan2(vy, vx);
-}
-
-function handleLandingResult(success, carFrontX, ground2Start, ground2End, dropToGround2) {
-    simulation.success = success;
-
-    const landingVelocity = simulation.velocityX;
-    const actualHorizontal = landingVelocity * simulation.timeSinceLaunch;
-    const baseData = lastPhysicsData ? { ...lastPhysicsData } : computePhysicsData();
-
-    const actualData = {
-        ...baseData,
-        takeoffVelocity: landingVelocity,
-        fallTime: simulation.timeSinceLaunch,
-        horizontalDistance: actualHorizontal,
-        success
-    };
-
-    let statusText = 'Result: ❌ Missed the platform!';
-
-    if (success) {
-        simulation.hasLanded = true;
-        simulation.hasFinished = false;
-        simulation.hasLaunched = false;
-        simulation.timeSinceLaunch = 0;
-        simulation.worldY = dropToGround2;
-        simulation.velocityY = 0;
-
-        const maxLeft = ground2End - getCarLengthMeters();
-        simulation.worldX = Math.min(Math.max(ground2Start - getCarLengthMeters(), simulation.worldX), maxLeft);
-
-        statusText = 'Result: ✅ Landed safely on Ground 2!';
-    } else {
-        simulation.isRunning = false;
-        simulation.hasFinished = true;
-        simulation.hasLanded = false;
-        simulation.worldY = currentLevel.ground1Height;
-        simulation.velocityX = 0;
-        simulation.velocityY = 0;
-
-        if (carFrontX < ground2Start) {
-            statusText = 'Result: ❌ Fell short of the gap!';
-        } else if (carFrontX > ground2End) {
-            statusText = 'Result: ❌ Overshot the platform!';
-        }
-    }
-
-    car.rotationVelocity = 0;
-    car.rotation = clamp(getSurfaceAngle(simulation.worldX), MIN_AIR_ROTATION, MAX_AIR_ROTATION);
-    lastPhysicsData = actualData;
-    refreshPhysicsDisplays(actualData, statusText);
-}
-
-function updateSimulation(delta) {
-    if (!simulation.isRunning) {
-        return;
-    }
-
-    simulation.elapsedTime += delta;
-
-    if (simulation.hasLanded) {
-        const trackEnd = currentLevel.ground1Length + currentLevel.gap + currentLevel.ground2Length - getCarLengthMeters();
-        const dropToGround2 = Math.max(0, currentLevel.ground1Height - currentLevel.ground2Height);
-
-        simulation.worldX += simulation.velocityX * delta;
-        simulation.worldY = dropToGround2;
-
-        if (simulation.worldX >= trackEnd) {
-            simulation.worldX = trackEnd;
-            simulation.velocityX = 0;
-            simulation.isRunning = false;
-            simulation.hasFinished = true;
-
-            if (lastPhysicsData) {
-                refreshPhysicsDisplays(lastPhysicsData, 'Result: ✅ Landed safely on Ground 2! (Stopped at far edge)');
-            }
-        }
-
-        return;
-    }
-
-    if (!simulation.hasLaunched) {
-        simulation.velocityX += cars[selectedCar].acceleration * delta;
-        simulation.worldX += simulation.velocityX * delta;
-
-        const takeoffLeftEdge = Math.max(0, currentLevel.ground1Length - getCarLengthMeters());
-
-        if (simulation.worldX >= takeoffLeftEdge) {
-            simulation.worldX = takeoffLeftEdge;
-            simulation.hasLaunched = true;
-            simulation.timeSinceLaunch = 0;
-
-            car.rotation = clamp(car.rotation + TAKEOFF_NOSE_UP, MIN_AIR_ROTATION, MAX_AIR_ROTATION);
-            car.rotationVelocity = 0;
-        }
-    } else {
-        simulation.timeSinceLaunch += delta;
-        simulation.velocityY += GRAVITY * delta;
-        simulation.worldX += simulation.velocityX * delta;
-        simulation.worldY += simulation.velocityY * delta;
-
-        const dropToGround2 = Math.max(0, currentLevel.ground1Height - currentLevel.ground2Height);
-        const ground2Start = currentLevel.ground1Length + currentLevel.gap;
-        const ground2End = ground2Start + currentLevel.ground2Length;
-        const carFrontX = simulation.worldX + getCarLengthMeters();
-
-        if (simulation.worldY >= dropToGround2) {
-            const landedOnPlatform = carFrontX >= ground2Start && carFrontX <= ground2End;
-            handleLandingResult(landedOnPlatform, carFrontX, ground2Start, ground2End, dropToGround2);
-        }
-    }
 }
 
 function getCarDrawDimensions(horizontalScale) {
@@ -426,16 +287,13 @@ function updateCarScreenPosition() {
         return;
     }
 
-    const worldX = simulation.worldX;
-    const worldY = simulation.worldY;
-    car.x = levelMetrics.ground1X + worldX * horizontalScale;
+    car.x = levelMetrics.ground1X + car.worldX * horizontalScale;
 
     if (simulation.success) {
+        // Snap to the landing platform height
         car.y = levelMetrics.ground2Y - drawHeight;
-    } else if (simulation.hasLaunched || simulation.isRunning) {
-        car.y = baseYGround1 + worldY * SCALE;
     } else {
-        car.y = baseYGround1;
+        car.y = baseYGround1 + car.worldY * SCALE;
     }
 }
 
@@ -451,7 +309,6 @@ function drawCar() {
     if (imageReady) {
         ctx.drawImage(carImages[selectedCar], -car.width / 2, -car.height / 2, car.width, car.height);
     } else {
-        // Fallback rectangle matches rotated draw path
         ctx.fillStyle = '#FF5722';
         ctx.fillRect(-car.width / 2, -car.height / 2, car.width, car.height);
     }
@@ -459,84 +316,254 @@ function drawCar() {
     ctx.restore();
 }
 
-function updateCarRotation(delta) {
-    const isAirborne = simulation.hasLaunched && !simulation.hasLanded && !simulation.hasFinished;
-    const previousRotation = car.rotation;
+// -----------------------------------------------------------------------------
+// Physics + gameplay
+// -----------------------------------------------------------------------------
+function resetSimulationState() {
+    simulation.isRunning = false;
+    simulation.hasLaunched = false;
+    simulation.hasFinished = false;
+    simulation.hasLanded = false;
+    simulation.success = null;
+    simulation.elapsedTime = 0;
+    simulation.timeSinceLaunch = 0;
+    simulation.takeoffWorldX = 0;
+    simulation.takeoffVelocity = 0;
+    simulation.landDropHeight = 0;
+    simulation.landTrackEnd = 0;
 
-    let targetRotation = 0;
-
-    if (isAirborne) {
-        targetRotation = computeAirRotationTarget();
-    } else if (simulation.isRunning || simulation.hasLanded) {
-        targetRotation = getSurfaceAngle(simulation.worldX);
-    }
-
-    targetRotation = clamp(targetRotation, MIN_AIR_ROTATION, MAX_AIR_ROTATION);
-
-    const trackingSpeed = isAirborne ? AIR_ROTATION_TRACK_SPEED : GROUND_ROTATION_TRACK_SPEED;
-    const blend = 1 - Math.exp(-trackingSpeed * delta);
-    car.rotation += (targetRotation - car.rotation) * blend;
-
-    if (Math.abs(car.rotation) < ROTATION_CLAMP_EPSILON) {
-        car.rotation = 0;
-    }
-
-    car.rotation = clamp(car.rotation, MIN_AIR_ROTATION, MAX_AIR_ROTATION);
-    car.rotationVelocity = (car.rotation - previousRotation) / Math.max(delta, 1e-4);
+    car.worldX = RUN_START_OFFSET;
+    car.worldY = 0;
+    car.vx = 0;
+    car.vy = 0;
+    car.ax = 0;
+    car.rotation = 0;
+    car.angularVelocity = 0;
 }
 
-function animate(timestamp) {
-    if (lastFrameTime === null) {
-        lastFrameTime = timestamp;
-    }
-
-    const deltaSeconds = (timestamp - lastFrameTime) / 1000;
-    updateSimulation(deltaSeconds);
-    updateCarRotation(deltaSeconds);
-
-    drawLevel();
-    updateCarScreenPosition();
-    drawCar();
-
-    lastFrameTime = timestamp;
-    requestAnimationFrame(animate);
+function startSimulation() {
+    resetSimulationState();
+    simulation.isRunning = true;
+    lastFrameTime = null;
 }
 
-// Wait for images to load
-let imagesLoaded = 0;
-const totalImages = 5; // 2 grounds + 3 cars
+function getGroundHeightAt(frontX) {
+    const ground1End = currentLevel.ground1Length;
+    const ground2Start = ground1End + currentLevel.gap;
+    const ground2End = ground2Start + currentLevel.ground2Length;
+    const ground2Height = Math.max(0, currentLevel.ground1Height - currentLevel.ground2Height);
 
-function imageLoaded() {
-    imagesLoaded++;
-    console.log(`Image loaded: ${imagesLoaded}/${totalImages}`);
-    if (imagesLoaded === totalImages) {
-        console.log('All images loaded!');
+    if (frontX <= ground1End) {
+        return 0;
     }
+
+    if (frontX >= ground2Start && frontX <= ground2End) {
+        return ground2Height;
+    }
+
+    return NO_GROUND;
 }
 
-ground1Img.onload = imageLoaded;
-ground1Img.onerror = () => {
-    console.error('Failed to load Ground1.png');
-    imageLoaded();
-};
+// Handles both successful and failed landings/crashes
+function handleLanding(outcome) {
+    const {
+        success,
+        reason,
+        dropToGround2,
+        ground2Start,
+        ground2End,
+        carFrontX
+    } = outcome;
 
-ground2Img.onload = imageLoaded;
-ground2Img.onerror = () => {
-    console.error('Failed to load Ground2.png');
-    imageLoaded();
-};
+    simulation.success = success;
 
-carImages.forEach((img, index) => {
-    img.onload = imageLoaded;
-    img.onerror = () => {
-        console.error(`Failed to load car image ${index}`);
-        imageLoaded();
+    const baseData = lastPhysicsData ? { ...lastPhysicsData } : computePhysicsData();
+    const horizontalDistance = Math.max(0, car.worldX - simulation.takeoffWorldX);
+    const actualData = {
+        ...baseData,
+        takeoffVelocity: simulation.takeoffVelocity,
+        fallTime: simulation.timeSinceLaunch,
+        horizontalDistance,
+        currentVx: car.vx,
+        currentVy: car.vy,
+        rotation: car.rotation,
+        angularVelocity: car.angularVelocity,
+        success
     };
-});
 
-// Start animation loop
-requestAnimationFrame(animate);
+    let statusText = 'Result: ❌ Crash!';
 
+    if (success) {
+        // Align car with landing platform and bleed speed using ground friction
+        simulation.hasLanded = true;
+        simulation.hasFinished = false;
+        simulation.hasLaunched = false;
+        simulation.timeSinceLaunch = 0;
+        simulation.landDropHeight = dropToGround2;
+        simulation.landTrackEnd = ground2End - getCarLengthMeters();
+
+        const minX = ground2Start - getCarLengthMeters();
+        const maxX = simulation.landTrackEnd;
+        car.worldX = clamp(car.worldX, minX, maxX);
+        car.worldY = dropToGround2;
+        car.vy = 0;
+        car.ax = 0;
+        car.angularVelocity = 0;
+        car.rotation = 0;
+
+        statusText = 'Result: ✅ Landed safely on Ground 2!';
+    } else {
+        simulation.isRunning = false;
+        simulation.hasFinished = true;
+        simulation.hasLanded = false;
+        simulation.hasLaunched = false;
+
+        car.ax = 0;
+        car.vx = 0;
+        car.vy = 0;
+        car.angularVelocity = 0;
+
+        if (reason === 'short') {
+            statusText = 'Result: ❌ Fell short of the gap!';
+        } else if (reason === 'long') {
+            statusText = 'Result: ❌ Overshot the platform!';
+        } else if (reason === 'rotation') {
+            statusText = 'Result: ❌ Crashed – landing angle too steep!';
+        } else if (reason === 'penetration') {
+            statusText = 'Result: ❌ Crashed – hit the ground too hard!';
+        } else {
+            statusText = 'Result: ❌ Missed the platform!';
+        }
+    }
+
+    lastPhysicsData = actualData;
+    refreshPhysicsDisplays(actualData, statusText);
+}
+
+function updatePhysics(dt) {
+    if (!simulation.isRunning) {
+        return;
+    }
+
+    simulation.elapsedTime += dt;
+
+    // After a safe landing, roll to a stop on Ground 2 with simple friction
+    if (simulation.hasLanded && simulation.success) {
+        car.ax = 0;
+        if (car.vx > 0) {
+            car.vx = Math.max(0, car.vx - FRICTION_DECEL * dt);
+        }
+        car.worldX = Math.min(simulation.landTrackEnd, car.worldX + car.vx * dt);
+        car.worldY = simulation.landDropHeight;
+        car.rotation = 0;
+        car.angularVelocity = 0;
+
+        // Stop once the car reaches the end or loses all speed
+        if (car.vx <= 0.05 || car.worldX >= simulation.landTrackEnd - 1e-3) {
+            car.vx = 0;
+            simulation.isRunning = false;
+            simulation.hasFinished = true;
+        }
+        return;
+    }
+
+    // Ground run: accelerate along Ground 1 until takeoff
+    if (!simulation.hasLaunched) {
+        car.ax = cars[selectedCar].acceleration;
+        car.vx += car.ax * dt;
+        car.worldX += car.vx * dt;
+        car.worldY = 0;
+        car.rotation = 0;
+        car.angularVelocity = 0;
+
+        const takeoffLeftEdge = Math.max(0, currentLevel.ground1Length - getCarLengthMeters());
+        if (car.worldX >= takeoffLeftEdge) {
+            car.worldX = takeoffLeftEdge;
+            simulation.hasLaunched = true;
+            simulation.timeSinceLaunch = 0;
+            simulation.takeoffWorldX = car.worldX;
+            simulation.takeoffVelocity = car.vx;
+            car.ax = 0;
+            car.vy = 0;
+            // Begin rotating in the air with a slight random spin
+            car.angularVelocity = (Math.random() - 0.5) * INITIAL_AIR_SPIN;
+        }
+        return;
+    }
+
+    // Airborne: integrate dt-based motion with gravity and angular dynamics
+    simulation.timeSinceLaunch += dt;
+
+    car.ax = 0; // no thrust in mid-air
+    car.vy += GRAVITY * dt;
+    car.worldX += car.vx * dt;
+    car.worldY += car.vy * dt;
+
+    // Random angular jitter to keep the spin lively
+    const angularJitter = (Math.random() - 0.5) * AIR_SPIN_NOISE * dt;
+    car.angularVelocity += angularJitter;
+
+    // Manual control hook: adjust car.angularVelocity here in the future.
+
+    // Apply angular damping so spin stays reasonable
+    const dampingFactor = Math.pow(ANGULAR_DAMPING, (dt * ANGULAR_DAMPING_DT));
+    car.angularVelocity *= dampingFactor;
+
+    car.rotation += car.angularVelocity * dt;
+    car.rotation = clamp(car.rotation, MIN_AIR_ROTATION, MAX_AIR_ROTATION);
+
+    // Landing / crash checks
+    const carFrontX = car.worldX + getCarLengthMeters();
+    const groundHeight = getGroundHeightAt(carFrontX);
+    const ground1Bottom = currentLevel.ground1Height;
+    const ground2Start = currentLevel.ground1Length + currentLevel.gap;
+    const ground2End = ground2Start + currentLevel.ground2Length;
+
+    if (groundHeight !== NO_GROUND) {
+        if (car.worldY >= groundHeight) {
+            const belowGround = car.worldY > groundHeight + LANDING_PENETRATION_TOLERANCE;
+            const rotationSafe = Math.abs(car.rotation) <= MAX_SAFE_LANDING_ANGLE;
+            const success = !belowGround && rotationSafe;
+
+            let reason = 'generic';
+            if (!rotationSafe) {
+                reason = 'rotation';
+            } else if (belowGround) {
+                reason = 'penetration';
+            }
+
+            if (success) {
+                car.worldY = groundHeight;
+            }
+
+            handleLanding({
+                success,
+                reason,
+                dropToGround2: groundHeight,
+                ground2Start,
+                ground2End,
+                carFrontX
+            });
+        }
+    } else if (car.worldY >= ground1Bottom) {
+        const shortFall = carFrontX < ground2Start;
+        const reason = shortFall ? 'short' : 'long';
+        car.worldY = ground1Bottom;
+
+        handleLanding({
+            success: false,
+            reason,
+            dropToGround2: ground1Bottom,
+            ground2Start,
+            ground2End,
+            carFrontX
+        });
+    }
+}
+
+// -----------------------------------------------------------------------------
+// UI + displays
+// -----------------------------------------------------------------------------
 const mathResultEl = document.getElementById('mathResult');
 const startButtonEl = document.getElementById('startButton');
 const carSelectionEl = document.getElementById('carSelection');
@@ -591,28 +618,42 @@ function buildPredictionStatus(data, prefix) {
     return `${prefix} ✅ Will make it!`;
 }
 
+function buildOptionalLine(label, value, formatter = (v) => v.toFixed(2)) {
+    if (typeof value !== 'number' || Number.isNaN(value)) {
+        return '';
+    }
+    return `<strong>${label}:</strong> ${formatter(value)}`;
+}
+
 function refreshPhysicsDisplays(data, statusText) {
+    const mathLines = [
+        buildOptionalLine('Acceleration', data.acceleration, (v) => `${v.toFixed(2)} m/s²`),
+        buildOptionalLine('Run-up Distance', data.runDistance, (v) => `${v.toFixed(2)} m`),
+        buildOptionalLine('Takeoff Speed', data.takeoffVelocity, (v) => `${v.toFixed(2)} m/s`),
+        buildOptionalLine('Acceleration Time', data.timeToTakeoff, (v) => `${v.toFixed(2)} s`),
+        buildOptionalLine('Air Time', data.fallTime, (v) => `${v.toFixed(2)} s`),
+        buildOptionalLine(
+            'Horizontal Travel',
+            data.horizontalDistance,
+            (v) => `${v.toFixed(2)} m (needs ${data.requiredHorizontalMin.toFixed(2)}-${data.requiredHorizontalMax.toFixed(2)} m)`
+        ),
+        buildOptionalLine('Current Vx', data.currentVx, (v) => `${v.toFixed(2)} m/s`),
+        buildOptionalLine('Current Vy', data.currentVy, (v) => `${v.toFixed(2)} m/s`),
+        buildOptionalLine('Rotation', data.rotation, (v) => `${toDegrees(v).toFixed(1)}°`),
+        buildOptionalLine('Angular Velocity', data.angularVelocity, (v) => `${toDegrees(v).toFixed(1)}°/s`)
+    ].filter(Boolean);
+
     if (mathResultEl) {
         mathResultEl.innerHTML = `
-            <strong>Acceleration:</strong> ${data.acceleration.toFixed(2)} m/s²<br>
-            <strong>Run-up Distance:</strong> ${data.runDistance.toFixed(2)} m<br>
-            <strong>Takeoff Speed:</strong> ${data.takeoffVelocity.toFixed(2)} m/s<br>
-            <strong>Air Time:</strong> ${data.fallTime.toFixed(2)} s<br>
-            <strong>Horizontal Travel:</strong> ${data.horizontalDistance.toFixed(2)} m (needs ${data.requiredHorizontalMin.toFixed(2)}-${data.requiredHorizontalMax.toFixed(2)} m)<br>
-            <strong>Status:</strong> ${statusText}
+            ${mathLines.slice(0, 6).join('<br>')}<br>
+            ${buildOptionalLine('Status', null, () => statusText)}
         `;
     }
 
     if (physicsCalculationsPanel) {
         physicsCalculationsPanel.innerHTML = `
             <h3>Physics Calculations</h3>
-            <p><strong>Acceleration:</strong> ${data.acceleration.toFixed(2)} m/s²</p>
-            <p><strong>Run-up distance:</strong> ${data.runDistance.toFixed(2)} m</p>
-            <p><strong>Takeoff speed:</strong> ${data.takeoffVelocity.toFixed(2)} m/s</p>
-            <p><strong>Acceleration time:</strong> ${data.timeToTakeoff.toFixed(2)} s</p>
-            <p><strong>Air time:</strong> ${data.fallTime.toFixed(2)} s</p>
-            <p><strong>Horizontal travel:</strong> ${data.horizontalDistance.toFixed(2)} m</p>
-            <p><strong>Landing window:</strong> ${data.requiredHorizontalMin.toFixed(2)}-${data.requiredHorizontalMax.toFixed(2)} m</p>
+            ${mathLines.map(line => `<p>${line}</p>`).join('')}
             <p><strong>Status:</strong> ${statusText}</p>
         `;
     }
@@ -624,7 +665,64 @@ function updateMathPanel(statusPrefix = 'Prediction:') {
     refreshPhysicsDisplays(lastPhysicsData, statusText);
 }
 
-// Car selection
+// -----------------------------------------------------------------------------
+// Animation loop
+// -----------------------------------------------------------------------------
+let lastFrameTime = null;
+
+function animate(timestamp) {
+    if (lastFrameTime === null) {
+        lastFrameTime = timestamp;
+    }
+
+    const deltaSeconds = (timestamp - lastFrameTime) / 1000;
+    updatePhysics(deltaSeconds);
+
+    drawLevel();
+    updateCarScreenPosition();
+    drawCar();
+
+    lastFrameTime = timestamp;
+    requestAnimationFrame(animate);
+}
+
+// -----------------------------------------------------------------------------
+// Asset loading instrumentation
+// -----------------------------------------------------------------------------
+let imagesLoaded = 0;
+const totalImages = 5;
+
+function imageLoaded() {
+    imagesLoaded++;
+    console.log(`Image loaded: ${imagesLoaded}/${totalImages}`);
+    if (imagesLoaded === totalImages) {
+        console.log('All images loaded!');
+    }
+}
+
+ground1Img.onload = imageLoaded;
+ground1Img.onerror = () => {
+    console.error('Failed to load Ground1.png');
+    imageLoaded();
+};
+
+ground2Img.onload = imageLoaded;
+ground2Img.onerror = () => {
+    console.error('Failed to load Ground2.png');
+    imageLoaded();
+};
+
+carImages.forEach((img, index) => {
+    img.onload = imageLoaded;
+    img.onerror = () => {
+        console.error(`Failed to load car image ${index}`);
+        imageLoaded();
+    };
+});
+
+// -----------------------------------------------------------------------------
+// UI Wiring
+// -----------------------------------------------------------------------------
 const carOptions = document.querySelectorAll('.car-option');
 
 carOptions.forEach((option, index) => {
@@ -641,7 +739,6 @@ carOptions.forEach((option, index) => {
     });
 });
 
-// Start button
 startButtonEl.addEventListener('click', () => {
     if (simulation.isRunning) {
         return;
@@ -663,4 +760,8 @@ startButtonEl.addEventListener('click', () => {
     startSimulation();
 });
 
+// -----------------------------------------------------------------------------
+// Kick things off
+// -----------------------------------------------------------------------------
 updateMathPanel();
+requestAnimationFrame(animate);
