@@ -14,11 +14,12 @@ body {
 
 #gameCanvas {
     display: block;
-    width: 100vw;
-    height: 80vh;
+    width: 100%;
+    height: auto;
     background: url('img/background.png') no-repeat center center;
     background-size: cover;
     border: none;
+    margin: 0 auto;
 }
 
 .game-container {
@@ -76,6 +77,10 @@ body {
     width: fit-content;
 }
 
+.car-selection.hidden {
+    display: none;
+}
+
 .car-option {
     cursor: pointer;
     padding: 10px;
@@ -104,6 +109,34 @@ body {
     text-align: center;
     margin-top: 5px;
     font-size: 12px;
+}
+
+.physics-calculations {
+    display: none;
+    flex-direction: column;
+    gap: 8px;
+    background: rgba(255, 255, 255, 0.95);
+    padding: 20px;
+    border-radius: 10px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    margin: 20px auto;
+    width: fit-content;
+}
+
+.physics-calculations.show {
+    display: flex;
+}
+
+.physics-calculations h3 {
+    margin-bottom: 10px;
+    font-size: 18px;
+    color: #333;
+}
+
+.physics-calculations p {
+    margin: 0;
+    font-size: 14px;
+    color: #333;
 }
 
 /* Math display panel */
