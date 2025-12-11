@@ -79,6 +79,7 @@ const simulation = {
     hasLaunched: false,
     hasFinished: false,
     hasLanded: false,
+    fallingAfterCrash: false,
     success: null,
     elapsedTime: 0,
     timeSinceLaunch: 0,
@@ -92,9 +93,9 @@ const simulation = {
 let car = {
     x: 0,
     y: 0,
-    width: 240,
-    height: 120,
-    lengthMeters: 240 / SCALE,
+    width: 100,
+    height: 70,
+    lengthMeters: 100 / SCALE,
     worldX: RUN_START_OFFSET,
     worldY: 0,
     vx: 0,
@@ -137,7 +138,7 @@ let currentLevel = {
 
 let selectedCar = 1;
 const cars = [
-    { name: "Motorcycle", acceleration: 3, mass: 1200 },
+    { name: "Motorcycle", acceleration: 1, mass: 1200 },
     { name: "Sports Car", acceleration: 3, mass: 1400 },
     { name: "Supercar", acceleration: 12, mass: 1500 }
 ];
@@ -324,6 +325,7 @@ function resetSimulationState() {
     simulation.hasLaunched = false;
     simulation.hasFinished = false;
     simulation.hasLanded = false;
+    simulation.fallingAfterCrash = false;
     simulation.success = null;
     simulation.elapsedTime = 0;
     simulation.timeSinceLaunch = 0;
@@ -352,6 +354,12 @@ function getGroundHeightAt(frontX) {
     const ground2Start = ground1End + currentLevel.gap;
     const ground2End = ground2Start + currentLevel.ground2Length;
     const ground2Height = Math.max(0, currentLevel.ground1Height - currentLevel.ground2Height);
+    const carRearX = car.worldX;
+
+    // If the car has fully left Ground 1 and has not yet reached Ground 2, there is no ground beneath it.
+    if (carRearX >= ground1End && frontX <= ground2Start) {
+        return NO_GROUND;
+    }
 
     if (frontX <= ground1End) {
         return 0;
@@ -362,6 +370,11 @@ function getGroundHeightAt(frontX) {
     }
 
     return NO_GROUND;
+}
+
+function getKillPlaneY() {
+    // Bottom of the visible canvas so crashes occur at the canyon floor, not mid-air.
+    return (INTERNAL_HEIGHT / SCALE) - 0.5;
 }
 
 // Handles both successful and failed landings/crashes
@@ -515,49 +528,74 @@ function updatePhysics(dt) {
     // Landing / crash checks
     const carFrontX = car.worldX + getCarLengthMeters();
     const groundHeight = getGroundHeightAt(carFrontX);
-    const ground1Bottom = currentLevel.ground1Height;
     const ground2Start = currentLevel.ground1Length + currentLevel.gap;
     const ground2End = ground2Start + currentLevel.ground2Length;
+    const killPlaneY = getKillPlaneY();
+    if (!simulation.fallingAfterCrash) {
+        if (groundHeight !== NO_GROUND) {
+            if (car.worldY >= groundHeight) {
+                const belowGround = car.worldY > groundHeight + LANDING_PENETRATION_TOLERANCE;
+                const rotationSafe = Math.abs(car.rotation) <= MAX_SAFE_LANDING_ANGLE;
+                const success = !belowGround && rotationSafe;
 
-    if (groundHeight !== NO_GROUND) {
-        if (car.worldY >= groundHeight) {
-            const belowGround = car.worldY > groundHeight + LANDING_PENETRATION_TOLERANCE;
-            const rotationSafe = Math.abs(car.rotation) <= MAX_SAFE_LANDING_ANGLE;
-            const success = !belowGround && rotationSafe;
+                let reason = 'generic';
+                if (!rotationSafe) {
+                    reason = 'rotation';
+                } else if (belowGround) {
+                    reason = 'penetration';
+                }
 
-            let reason = 'generic';
-            if (!rotationSafe) {
-                reason = 'rotation';
-            } else if (belowGround) {
-                reason = 'penetration';
+                if (success) {
+                    car.worldY = groundHeight;
+                    handleLanding({
+                        success,
+                        reason,
+                        dropToGround2: groundHeight,
+                        ground2Start,
+                        ground2End,
+                        carFrontX
+                    });
+                } else {
+                    // Begin post-crash free-fall: stop horizontal motion and let gravity take over.
+                    simulation.fallingAfterCrash = true;
+                    simulation.hasFinished = false;
+                    simulation.isRunning = true;
+                    simulation.hasLaunched = true;
+                    car.worldY = Math.max(car.worldY, groundHeight);
+                    car.vx = 0;
+                    car.ax = 0;
+                    car.vy = Math.max(car.vy, 0.5);
+                    // keep rotation/omega; damping continues above
+                }
             }
-
-            if (success) {
-                car.worldY = groundHeight;
-            }
+        } else if (car.worldY >= killPlaneY) {
+            const shortFall = carFrontX < ground2Start;
+            const reason = shortFall ? 'short' : 'long';
+            car.worldY = killPlaneY;
 
             handleLanding({
-                success,
+                success: false,
                 reason,
-                dropToGround2: groundHeight,
+                dropToGround2: killPlaneY,
                 ground2Start,
                 ground2End,
                 carFrontX
             });
         }
-    } else if (car.worldY >= ground1Bottom) {
-        const shortFall = carFrontX < ground2Start;
-        const reason = shortFall ? 'short' : 'long';
-        car.worldY = ground1Bottom;
-
-        handleLanding({
-            success: false,
-            reason,
-            dropToGround2: ground1Bottom,
-            ground2Start,
-            ground2End,
-            carFrontX
-        });
+    } else {
+        // Already in a post-crash fall: finish once we reach the canyon floor.
+        if (car.worldY >= killPlaneY) {
+            car.worldY = killPlaneY;
+            simulation.fallingAfterCrash = false;
+            handleLanding({
+                success: false,
+                reason: 'fall',
+                dropToGround2: killPlaneY,
+                ground2Start,
+                ground2End,
+                carFrontX
+            });
+        }
     }
 }
 
