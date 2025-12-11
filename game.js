@@ -34,7 +34,7 @@ resizeCanvas();
 // Physics configuration (all units in meters, seconds, radians)
 // -----------------------------------------------------------------------------
 const SCALE = 20;
-const GRAVITY = 9.8;
+const GRAVITY = 9.81;
 const RUN_START_OFFSET = 1;
 
 const MIN_AIR_ROTATION = -Math.PI / 12;
@@ -44,6 +44,7 @@ const AIR_SPIN_NOISE = Math.PI * 0.25;          // random spin impulse per secon
 const MAX_SAFE_LANDING_ANGLE = Math.PI / 10;    // land successfully only if |rotation| <= ~18°
 const LANDING_PENETRATION_TOLERANCE = 0.4;      // extra vertical tolerance before counting as floor clip
 const FRICTION_DECEL = 4;                       // simple ground friction after a safe landing (m/s²)
+const CAR_GROUND_OFFSET = 2;                  // lower the car so wheels sit into the ground slightly (meters)
 
 const ANGULAR_DAMPING = 0.92;                   // mild damping so spin does not explode
 const ANGULAR_DAMPING_DT = 60;                  // reference FPS for damping scaling
@@ -55,6 +56,7 @@ const TIPPING_DAMPING = 6;                      // damping for tipping angular v
 const TIPPING_RELEASE_ANGLE = Math.PI / 3;      // release into free fall once nose dips ~60°
 const MAX_TIPPING_ANGULAR_VELOCITY = Math.PI;   // cap tipping angular speed (rad/s)
 const PIVOT_BLEND_RATE = 3;                     // blend per second from rear pivot to center once airborne
+const TIPPING_TARGET_NOSE_DOWN = Math.PI / 6;   // desired nose-down angle while tipping off the edge
 
 // -----------------------------------------------------------------------------
 // Helpers
@@ -280,7 +282,7 @@ function updateCarScreenPosition() {
     car.height = drawHeight;
     car.width = drawWidth;
 
-    const baseYGround1 = levelMetrics.ground1Y - drawHeight;
+    const baseYGround1 = levelMetrics.ground1Y - drawHeight + CAR_GROUND_OFFSET * SCALE;
 
     if (!simulation.isRunning && !simulation.hasFinished) {
         car.x = levelMetrics.ground1X + RUN_START_OFFSET * horizontalScale;
@@ -292,7 +294,7 @@ function updateCarScreenPosition() {
 
     if (simulation.success) {
         // Snap to the landing platform height
-        car.y = levelMetrics.ground2Y - drawHeight;
+        car.y = levelMetrics.ground2Y - drawHeight + CAR_GROUND_OFFSET * SCALE;
     } else {
         car.y = baseYGround1 + car.worldY * SCALE;
     }
@@ -482,25 +484,59 @@ function updatePhysics(dt) {
 
     // Ground run: accelerate along Ground 1 until takeoff
     if (!simulation.hasLaunched) {
-        car.ax = cars[selectedCar].acceleration;
-        car.vx += car.ax * dt;
-        car.worldX += car.vx * dt;
-        car.worldY = 0;
-        car.rotation = 0;
-        car.angularVelocity = 0;
+        const groundAccel = cars[selectedCar].acceleration;
+        const carFrontX = car.worldX + getCarLengthMeters();
+        const ground1End = currentLevel.ground1Length;
+        const frontHasNoGround = carFrontX > ground1End;
+        const rearStillOnGround = car.worldX <= ground1End;
 
-        const takeoffLeftEdge = Math.max(0, currentLevel.ground1Length - getCarLengthMeters());
-        if (car.worldX >= takeoffLeftEdge) {
-            car.worldX = takeoffLeftEdge;
-            simulation.hasLaunched = true;
-            simulation.timeSinceLaunch = 0;
-            simulation.takeoffWorldX = car.worldX;
-            simulation.takeoffVelocity = car.vx;
-            car.ax = 0;
-            car.vy = 0;
-            // Begin rotating in the air with a slight random spin
-            car.angularVelocity = (Math.random() - 0.5) * INITIAL_AIR_SPIN;
+        // Normal run while fully on ground
+        if (!frontHasNoGround) {
+            car.ax = groundAccel;
+            car.vx += car.ax * dt;
+            car.worldX += car.vx * dt;
+            car.worldY = 0;
+            car.rotation = 0;
+            car.angularVelocity = 0;
+            return;
         }
+
+        // Tipping phase: front is over the edge, rear still on ground -> pitch nose down
+        if (frontHasNoGround && rearStillOnGround) {
+            car.ax = groundAccel;
+            car.vx += car.ax * dt;
+            car.worldX += car.vx * dt;
+            car.worldY = 0;
+
+            const targetRotation = TIPPING_TARGET_NOSE_DOWN; // nose-down bias
+            const angAccel = (targetRotation - car.rotation) * TIPPING_STIFFNESS - car.angularVelocity * TIPPING_DAMPING;
+            car.angularVelocity += angAccel * dt;
+            car.angularVelocity = clamp(car.angularVelocity, -MAX_TIPPING_ANGULAR_VELOCITY, MAX_TIPPING_ANGULAR_VELOCITY);
+            car.rotation += car.angularVelocity * dt;
+            car.rotation = clamp(car.rotation, MIN_AIR_ROTATION, MAX_AIR_ROTATION);
+
+            // Release into flight once rotation tips far enough or rear leaves ground
+            const rearOffGround = car.worldX > ground1End;
+            if (Math.abs(car.rotation) >= TIPPING_RELEASE_ANGLE || rearOffGround) {
+                simulation.hasLaunched = true;
+                simulation.timeSinceLaunch = 0;
+                simulation.takeoffWorldX = car.worldX;
+                simulation.takeoffVelocity = car.vx;
+                car.ax = 0;
+                car.vy = 0;
+                // keep current angular velocity to carry the tip into the air
+            }
+            return;
+        }
+
+        // Rear has also cleared: start airborne phase
+        simulation.hasLaunched = true;
+        simulation.timeSinceLaunch = 0;
+        simulation.takeoffWorldX = car.worldX;
+        simulation.takeoffVelocity = car.vx;
+        car.ax = 0;
+        car.vy = 0;
+        car.angularVelocity = (Math.random() - 0.5) * INITIAL_AIR_SPIN;
         return;
     }
 
