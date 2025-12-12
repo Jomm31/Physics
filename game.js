@@ -97,13 +97,27 @@ const simulation = {
     landTrackEnd: 0
 };
 
+// Camera system for following the car
+const camera = {
+    x: 0,
+    y: 0,
+    targetX: 0,
+    targetY: 0,
+    zoom: 1,
+    targetZoom: 1,
+    followSpeed: 3,      // How fast camera catches up to target
+    zoomSpeed: 2,         // How fast zoom changes
+    activeZoom: 2.5,      // Zoom level when simulation is running
+    defaultZoom: 1        // Zoom level when not running
+};
+
 // Drawing + physics state for the car
 let car = {
     x: 0,
     y: 0,
     width: 100,
     height: 70,
-    lengthMeters: 150 / SCALE,
+    lengthMeters: 4.5,  // Typical car length in meters
     worldX: RUN_START_OFFSET,
     worldY: 0,
     vx: 0,
@@ -220,11 +234,11 @@ let wheelRotation = 0;
 let currentLevelNumber = 1;
 
 let currentLevel = {
-    ground1Length: 26,
-    ground1Height: 26,
-    gap: 10,
-    ground2Length: 15,
-    ground2Height: 22
+    ground1Length: 50,   // 50m run-up distance
+    ground1Height: 25,   // 10m high ramp/cliff
+    gap: 15,             // 15m gap to jump
+    ground2Length: 25,   // 25m landing zone
+    ground2Height: 23    // 8m high landing platform (2m drop)
 };
 
 let selectedCar = 0;
@@ -281,8 +295,52 @@ function computeLevelMetrics() {
     };
 }
 
+function updateCamera(dt) {
+    if (!levelMetrics) return;
+    
+    const horizontalScale = levelMetrics.horizontalScale;
+    
+    if (simulation.isRunning || simulation.hasFinished) {
+        // Calculate car center position in screen coordinates
+        const carCenterX = levelMetrics.ground1X + car.worldX * horizontalScale + car.width / 2;
+        const carCenterY = simulation.success 
+            ? levelMetrics.ground2Y - car.height / 2 + CAR_GROUND_OFFSET * SCALE
+            : levelMetrics.ground1Y - car.height / 2 + CAR_GROUND_OFFSET * SCALE + car.worldY * SCALE;
+        
+        // Target camera to center on car
+        camera.targetX = carCenterX - INTERNAL_WIDTH / 2 / camera.zoom;
+        camera.targetY = carCenterY - INTERNAL_HEIGHT / 2 / camera.zoom;
+        camera.targetZoom = camera.activeZoom;
+        
+        // Keep camera in bounds
+        const maxX = INTERNAL_WIDTH * (1 - 1 / camera.zoom);
+        const maxY = INTERNAL_HEIGHT * (1 - 1 / camera.zoom);
+        camera.targetX = clamp(camera.targetX, 0, maxX);
+        camera.targetY = clamp(camera.targetY, 0, maxY);
+    } else {
+        // Reset camera when not running
+        camera.targetX = 0;
+        camera.targetY = 0;
+        camera.targetZoom = camera.defaultZoom;
+    }
+    
+    // Smooth camera movement
+    const lerpFactor = 1 - Math.exp(-camera.followSpeed * dt);
+    camera.x += (camera.targetX - camera.x) * lerpFactor;
+    camera.y += (camera.targetY - camera.y) * lerpFactor;
+    
+    // Smooth zoom
+    const zoomLerpFactor = 1 - Math.exp(-camera.zoomSpeed * dt);
+    camera.zoom += (camera.targetZoom - camera.zoom) * zoomLerpFactor;
+}
+
 function drawLevel() {
     ctx.clearRect(0, 0, INTERNAL_WIDTH, INTERNAL_HEIGHT);
+    
+    // Apply camera transform
+    ctx.save();
+    ctx.scale(camera.zoom, camera.zoom);
+    ctx.translate(-camera.x, -camera.y);
 
     levelMetrics = computeLevelMetrics();
 
@@ -344,16 +402,19 @@ function drawLevel() {
         ground1Y - 20
     );
 
-    // Draw stopwatch from start of simulation until restart/next level
-    if (simulation.showStopwatch || simulation.showAccelStopwatch) {
-        drawStopwatch();
-    }
-
     ctx.fillText(
         `Ground 2: ${currentLevel.ground2Length}m × ${currentLevel.ground2Height}m`,
         ground2X + ground2Width / 2,
         ground2Y - 20
     );
+    
+    // Restore camera transform before drawing UI elements
+    ctx.restore();
+    
+    // Draw stopwatch (UI element, not affected by camera)
+    if (simulation.showStopwatch || simulation.showAccelStopwatch) {
+        drawStopwatch();
+    }
 }
 
 // -----------------------------------------------------------------------------
@@ -408,6 +469,11 @@ function updateCarScreenPosition() {
 }
 
 function drawCar() {
+    // Apply camera transform for car drawing
+    ctx.save();
+    ctx.scale(camera.zoom, camera.zoom);
+    ctx.translate(-camera.x, -camera.y);
+    
     const centerX = car.x + car.width / 2;
     const centerY = car.y + car.height / 2;
     
@@ -457,6 +523,9 @@ function drawCar() {
     }
 
     ctx.restore();
+    
+    // Restore camera transform
+    ctx.restore();
 }
 
 // -----------------------------------------------------------------------------
@@ -480,6 +549,12 @@ function resetSimulationState() {
     simulation.takeoffVelocity = 0;
     simulation.landDropHeight = 0;
     simulation.landTrackEnd = 0;
+    
+    // Reset camera
+    camera.x = 0;
+    camera.y = 0;
+    camera.zoom = camera.defaultZoom;
+    camera.targetZoom = camera.defaultZoom;
 
     car.worldX = RUN_START_OFFSET;
     car.worldY = 0;
@@ -1164,6 +1239,7 @@ function animate(timestamp) {
 
     const deltaSeconds = (timestamp - lastFrameTime) / 1000;
     updatePhysics(deltaSeconds);
+    updateCamera(deltaSeconds);
 
     drawLevel();
     updateCarScreenPosition();
@@ -1265,8 +1341,8 @@ restartButtonEl.addEventListener('click', () => {
     
     // Reset to level 1
     currentLevelNumber = 1;
-    currentLevel.gap = 10;
-    currentLevel.ground2Height = 22; // Reset ground2 height to initial value
+    currentLevel.gap = 15;
+    currentLevel.ground2Height = 8; // Reset ground2 height to initial value
     
     // Update level display
     if (levelDisplayEl) {
