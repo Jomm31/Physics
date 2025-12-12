@@ -96,7 +96,7 @@ let car = {
     y: 0,
     width: 100,
     height: 70,
-    lengthMeters: 200 / SCALE,
+    lengthMeters: 100 / SCALE,
     worldX: RUN_START_OFFSET,
     worldY: 0,
     vx: 0,
@@ -126,19 +126,26 @@ const carWheelImages = {};
 // Wheel positions are defined as percentages of the car's width/height
 // frontWheel and rearWheel: { x: percentage from left, y: percentage from top, size: wheel size as percentage of car height }
 const carConfigs = [
-
+    {
+        name: "Burner",
+        bodyImage: "img/carsNoWheels/Burner.png",
+        wheelImage: "img/wheels/BurnerWheels.png",
+        frontWheel: { x: 0.80, y: 0.75, size: 0.35 },
+        rearWheel: { x: 0.20, y: 0.75, size: 0.35 }
+    },
     {
         name: "Formula-1",
         bodyImage: "img/carsNoWheels/Formula-1.png",
         wheelImage: "img/wheels/Formula-1Wheels.png",
         frontWheel: { x: 0.766, y: 0.67, size: 0.56 },
         rearWheel: { x: 0.12, y: 0.67, size: 0.56 }
-    },{
-        name: "Volkswagen Golf Mk1 Cabriolet",
-        bodyImage: "img/carsNoWheels/Volkswagen Golf Mk1 Cabriolet.png",
-        wheelImage: "img/wheels/Volkswagen Golf Mk1 CabrioletWheels.png",
-        frontWheel: { x: 0.804, y: 0.80, size: 0.423 },
-        rearWheel: { x: 0.173, y: 0.80, size: 0.423 }
+    },
+    {
+        name: "Jeep Wrangler",
+        bodyImage: "img/carsNoWheels/Jeep Wrangler.png",
+        wheelImage: "img/wheels/Jeep WranglerWheels.png",
+        frontWheel: { x: 0.80, y: 0.75, size: 0.40 },
+        rearWheel: { x: 0.20, y: 0.75, size: 0.40 }
     },
     {
         name: "McLaren P1",
@@ -146,8 +153,56 @@ const carConfigs = [
         wheelImage: "img/wheels/McLaren P1Wheels.png",
         frontWheel: { x: 0.775, y: 0.76, size: 0.57 },
         rearWheel: { x: 0.127, y: 0.76, size: 0.57 }
+    },
+    {
+        name: "Nissan GT-R R35",
+        bodyImage: "img/carsNoWheels/Nissan GT-R R35.png",
+        wheelImage: "img/wheels/Nissan GT-R R35Wheels.png",
+        frontWheel: { x: 0.78, y: 0.75, size: 0.38 },
+        rearWheel: { x: 0.22, y: 0.75, size: 0.38 }
+    },
+    {
+        name: "Ram 1500",
+        bodyImage: "img/carsNoWheels/Ram 1500 pickup truck.png",
+        wheelImage: "img/wheels/Ram 1500 pickup truckWheels.png",
+        frontWheel: { x: 0.82, y: 0.75, size: 0.38 },
+        rearWheel: { x: 0.18, y: 0.75, size: 0.38 }
+    },
+    {
+        name: "Scroom",
+        bodyImage: "img/carsNoWheels/Scroom.png",
+        wheelImage: "img/wheels/ScroomWheels.png",
+        frontWheel: { x: 0.80, y: 0.75, size: 0.35 },
+        rearWheel: { x: 0.20, y: 0.75, size: 0.35 }
+    },
+    {
+        name: "Shelby Cobra Daytona",
+        bodyImage: "img/carsNoWheels/Shelby Cobra Daytona Coupe.png",
+        wheelImage: "img/wheels/Shelby Cobra Daytona CoupeWheels.png",
+        frontWheel: { x: 0.78, y: 0.75, size: 0.38 },
+        rearWheel: { x: 0.22, y: 0.75, size: 0.38 }
+    },
+    {
+        name: "Supra-1",
+        bodyImage: "img/carsNoWheels/Supra-1.png",
+        wheelImage: "img/wheels/Supra-1Wheels.png",
+        frontWheel: { x: 0.78, y: 0.75, size: 0.38 },
+        rearWheel: { x: 0.22, y: 0.75, size: 0.38 }
+    },
+    {
+        name: "VW Golf Mk1",
+        bodyImage: "img/carsNoWheels/Volkswagen Golf Mk1 Cabriolet.png",
+        wheelImage: "img/wheels/Volkswagen Golf Mk1 CabrioletWheels.png",
+        frontWheel: { x: 0.804, y: 0.80, size: 0.423 },
+        rearWheel: { x: 0.173, y: 0.80, size: 0.423 }
+    },
+    {
+        name: "Z-Spider",
+        bodyImage: "img/carsNoWheels/Z-Spider.png",
+        wheelImage: "img/wheels/Z-SpiderWheels.png",
+        frontWheel: { x: 0.80, y: 0.75, size: 0.35 },
+        rearWheel: { x: 0.20, y: 0.75, size: 0.35 }
     }
-    
 ];
 
 // Load all car body and wheel images
@@ -175,9 +230,17 @@ let currentLevel = {
 
 let selectedCar = 0;
 const cars = [
+    { name: "Burner", acceleration: 8, mass: 1000 },
     { name: "Formula-1", acceleration: 12, mass: 800 },
-    { name: "Volkswagen Golf Mk1 Cabriolet", acceleration: 3, mass: 1400 },
-    { name: "McLaren P1", acceleration: 10, mass: 1500 }
+    { name: "Jeep Wrangler", acceleration: 4, mass: 2000 },
+    { name: "McLaren P1", acceleration: 10, mass: 1500 },
+    { name: "Nissan GT-R R35", acceleration: 9, mass: 1700 },
+    { name: "Ram 1500", acceleration: 5, mass: 2500 },
+    { name: "Scroom", acceleration: 7, mass: 1200 },
+    { name: "Shelby Cobra Daytona", acceleration: 8, mass: 1100 },
+    { name: "Supra-1", acceleration: 7, mass: 1500 },
+    { name: "VW Golf Mk1", acceleration: 3, mass: 1400 },
+    { name: "Z-Spider", acceleration: 6, mass: 1300 }
 ];
 
 // -----------------------------------------------------------------------------

@@ -67,14 +67,15 @@ body {
     bottom: auto;
     left: auto;
     transform: none;
-    display: flex;
-    gap: 20px;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 15px;
     background: rgba(255, 255, 255, 0.9);
     padding: 20px;
     border-radius: 10px;
     box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
     margin: 20px auto;
-    width: fit-content;
+    max-width: 600px;
 }
 
 .car-selection.hidden {
