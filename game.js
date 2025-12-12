@@ -216,23 +216,25 @@ let currentLevel = {
     ground1Length: 26,
     ground1Height: 26,
     gap: 10,
-    ground2Length: 10,
+    ground2Length: 15,
     ground2Height: 22
 };
 
 let selectedCar = 0;
+let chosenAcceleration = 9; // Will be updated based on car and slider
+
 const cars = [
-    { name: "Burner", acceleration: 9, mass: 900 },
-    { name: "Formula-1", acceleration: 14, mass: 800 },
-    { name: "Jeep Wrangler", acceleration: 4, mass: 2000 },
-    { name: "McLaren P1", acceleration: 10, mass: 1500 },
-    { name: "Nissan GT-R R35", acceleration: 9, mass: 1700 },
-    { name: "Ram 1500", acceleration: 5, mass: 2500 },
-    { name: "Scroom", acceleration: 7, mass: 1200 },
-    { name: "Shelby Cobra Daytona", acceleration: 8, mass: 1100 },
-    { name: "Supra-1", acceleration: 13, mass: 1500 },
-    { name: "VW Golf Mk1", acceleration: 3, mass: 1400 },
-    { name: "Z-Spider", acceleration: 10, mass: 1100 }
+    { name: "Burner", minAcceleration: 3, maxAcceleration: 9, mass: 900 },
+    { name: "Formula-1", minAcceleration: 5, maxAcceleration: 14, mass: 800 },
+    { name: "Jeep Wrangler", minAcceleration: 2, maxAcceleration: 4, mass: 2000 },
+    { name: "McLaren P1", minAcceleration: 4, maxAcceleration: 10, mass: 1500 },
+    { name: "Nissan GT-R R35", minAcceleration: 3, maxAcceleration: 9, mass: 1700 },
+    { name: "Ram 1500", minAcceleration: 2, maxAcceleration: 5, mass: 2500 },
+    { name: "Scroom", minAcceleration: 3, maxAcceleration: 7, mass: 1200 },
+    { name: "Shelby Cobra Daytona", minAcceleration: 3, maxAcceleration: 8, mass: 1100 },
+    { name: "Supra-1", minAcceleration: 5, maxAcceleration: 13, mass: 1500 },
+    { name: "VW Golf Mk1", minAcceleration: 1, maxAcceleration: 3, mass: 1400 },
+    { name: "Z-Spider", minAcceleration: 4, maxAcceleration: 10, mass: 1100 }
 ];
 
 // -----------------------------------------------------------------------------
@@ -632,7 +634,7 @@ function updatePhysics(dt) {
 
     // Ground run: accelerate along Ground 1 until takeoff
     if (!simulation.hasLaunched) {
-        car.ax = cars[selectedCar].acceleration;
+        car.ax = chosenAcceleration;
         car.vx += car.ax * dt;
         car.worldX += car.vx * dt;
         car.worldY = 0;
@@ -813,14 +815,57 @@ nextLevelButtonEl.style.display = 'none';
 // Get level display element
 const levelDisplayEl = document.querySelector('.level-display');
 
+// Create acceleration slider container
+const accelerationSliderContainer = document.createElement('div');
+accelerationSliderContainer.id = 'accelerationSliderContainer';
+accelerationSliderContainer.className = 'acceleration-slider-container';
+accelerationSliderContainer.innerHTML = `
+    <label for="accelerationSlider">Acceleration: <span id="accelerationValue">${cars[selectedCar].maxAcceleration}</span> m/s²</label>
+    <input type="range" id="accelerationSlider" min="${cars[selectedCar].minAcceleration}" max="${cars[selectedCar].maxAcceleration}" value="${cars[selectedCar].maxAcceleration}" step="0.5">
+    <div class="slider-labels">
+        <span id="minAccelLabel">${cars[selectedCar].minAcceleration} m/s²</span>
+        <span id="maxAccelLabel">${cars[selectedCar].maxAcceleration} m/s²</span>
+    </div>
+`;
+
+// Initialize chosenAcceleration to the selected car's max
+chosenAcceleration = cars[selectedCar].maxAcceleration;
+
 if (gameContainerEl && carSelectionEl) {
     gameContainerEl.insertBefore(physicsCalculationsPanel, carSelectionEl.nextSibling);
     gameContainerEl.appendChild(restartButtonEl);
     gameContainerEl.appendChild(nextLevelButtonEl);
+    // Insert slider before car selection
+    gameContainerEl.insertBefore(accelerationSliderContainer, carSelectionEl);
+}
+
+// Get slider elements
+const accelerationSlider = document.getElementById('accelerationSlider');
+const accelerationValueDisplay = document.getElementById('accelerationValue');
+const minAccelLabel = document.getElementById('minAccelLabel');
+const maxAccelLabel = document.getElementById('maxAccelLabel');
+
+// Update slider when value changes
+accelerationSlider.addEventListener('input', () => {
+    chosenAcceleration = parseFloat(accelerationSlider.value);
+    accelerationValueDisplay.textContent = chosenAcceleration;
+    updateMathPanel();
+});
+
+// Function to update slider for selected car
+function updateAccelerationSlider() {
+    const car = cars[selectedCar];
+    accelerationSlider.min = car.minAcceleration;
+    accelerationSlider.max = car.maxAcceleration;
+    accelerationSlider.value = car.maxAcceleration;
+    chosenAcceleration = car.maxAcceleration;
+    accelerationValueDisplay.textContent = chosenAcceleration;
+    minAccelLabel.textContent = `${car.minAcceleration} m/s²`;
+    maxAccelLabel.textContent = `${car.maxAcceleration} m/s²`;
 }
 
 function computePhysicsData() {
-    const acceleration = cars[selectedCar].acceleration;
+    const acceleration = chosenAcceleration;
     const carLength = getCarLengthMeters();
     const takeoffLeftEdge = Math.max(0, currentLevel.ground1Length - carLength);
     const runDistance = Math.max(0, takeoffLeftEdge - RUN_START_OFFSET);
@@ -984,6 +1029,7 @@ carOptions.forEach((option, index) => {
         option.classList.add('selected');
         selectedCar = index;
         console.log(`Selected car: ${cars[index].name}`);
+        updateAccelerationSlider();
         updateMathPanel();
     });
 });
@@ -1000,6 +1046,9 @@ startButtonEl.addEventListener('click', () => {
     if (physicsCalculationsPanel) {
         physicsCalculationsPanel.classList.add('show');
     }
+    
+    // Hide acceleration slider
+    accelerationSliderContainer.classList.add('hidden');
 
     startButtonEl.classList.add('hidden');
     const data = lastPhysicsData || computePhysicsData();
@@ -1031,6 +1080,7 @@ restartButtonEl.addEventListener('click', () => {
         physicsCalculationsPanel.classList.remove('show');
     }
     startButtonEl.classList.remove('hidden');
+    accelerationSliderContainer.classList.remove('hidden');
     
     // Reset simulation
     resetSimulationState();
@@ -1061,6 +1111,7 @@ nextLevelButtonEl.addEventListener('click', () => {
         physicsCalculationsPanel.classList.remove('show');
     }
     startButtonEl.classList.remove('hidden');
+    accelerationSliderContainer.classList.remove('hidden');
     
     // Reset simulation
     resetSimulationState();
