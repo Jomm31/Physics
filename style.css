@@ -265,7 +265,7 @@ body {
 /* Restart button for game.js */
 #restartButton {
     position: absolute;
-    top: 60%;
+    top: 30%;
     left: 50%;
     transform: translate(-50%, -50%);
     padding: 15px 40px;
@@ -288,7 +288,7 @@ body {
 /* Next Level button */
 #nextLevelButton {
     position: absolute;
-    top: 60%;
+    top: 30%;
     left: 50%;
     transform: translate(-50%, -50%);
     padding: 15px 40px;
