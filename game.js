@@ -34,7 +34,7 @@ resizeCanvas();
 // Physics configuration (all units in meters, seconds, radians)
 // -----------------------------------------------------------------------------
 const SCALE = 20;
-const GRAVITY = 9.81;
+const GRAVITY = 9.8;
 const RUN_START_OFFSET = 1;
 
 const MIN_AIR_ROTATION = -Math.PI / 12;
@@ -44,7 +44,7 @@ const AIR_SPIN_NOISE = Math.PI * 0.25;          // random spin impulse per secon
 const MAX_SAFE_LANDING_ANGLE = Math.PI / 10;    // land successfully only if |rotation| <= ~18°
 const LANDING_PENETRATION_TOLERANCE = 0.4;      // extra vertical tolerance before counting as floor clip
 const FRICTION_DECEL = 4;                       // simple ground friction after a safe landing (m/s²)
-const CAR_GROUND_OFFSET = 2;                  // lower the car so wheels sit into the ground slightly (meters)
+const CAR_GROUND_OFFSET = 2;   
 
 const ANGULAR_DAMPING = 0.92;                   // mild damping so spin does not explode
 const ANGULAR_DAMPING_DT = 60;                  // reference FPS for damping scaling
@@ -56,7 +56,6 @@ const TIPPING_DAMPING = 6;                      // damping for tipping angular v
 const TIPPING_RELEASE_ANGLE = Math.PI / 3;      // release into free fall once nose dips ~60°
 const MAX_TIPPING_ANGULAR_VELOCITY = Math.PI;   // cap tipping angular speed (rad/s)
 const PIVOT_BLEND_RATE = 3;                     // blend per second from rear pivot to center once airborne
-const TIPPING_TARGET_NOSE_DOWN = Math.PI / 6;   // desired nose-down angle while tipping off the edge
 
 // -----------------------------------------------------------------------------
 // Helpers
@@ -97,7 +96,7 @@ let car = {
     y: 0,
     width: 100,
     height: 70,
-    lengthMeters: 100 / SCALE,
+    lengthMeters: 200 / SCALE,
     worldX: RUN_START_OFFSET,
     worldY: 0,
     vx: 0,
@@ -118,14 +117,50 @@ ground1Img.src = 'img/Ground1.png';
 const ground2Img = new Image();
 ground2Img.src = 'img/Ground2.png';
 
-const carImages = [
-    new Image(),
-    new Image(),
-    new Image()
+// Car body images (without wheels)
+const carBodyImages = {};
+// Wheel images
+const carWheelImages = {};
+
+// Car configurations: each car has body image, wheel image, and wheel positions
+// Wheel positions are defined as percentages of the car's width/height
+// frontWheel and rearWheel: { x: percentage from left, y: percentage from top, size: wheel size as percentage of car height }
+const carConfigs = [
+
+    {
+        name: "Formula-1",
+        bodyImage: "img/carsNoWheels/Formula-1.png",
+        wheelImage: "img/wheels/Formula-1Wheels.png",
+        frontWheel: { x: 0.766, y: 0.67, size: 0.56 },
+        rearWheel: { x: 0.12, y: 0.67, size: 0.56 }
+    },{
+        name: "Volkswagen Golf Mk1 Cabriolet",
+        bodyImage: "img/carsNoWheels/Volkswagen Golf Mk1 Cabriolet.png",
+        wheelImage: "img/wheels/Volkswagen Golf Mk1 CabrioletWheels.png",
+        frontWheel: { x: 0.804, y: 0.80, size: 0.423 },
+        rearWheel: { x: 0.173, y: 0.80, size: 0.423 }
+    },
+    {
+        name: "McLaren P1",
+        bodyImage: "img/carsNoWheels/McLaren P1.png",
+        wheelImage: "img/wheels/McLaren P1Wheels.png",
+        frontWheel: { x: 0.775, y: 0.76, size: 0.57 },
+        rearWheel: { x: 0.127, y: 0.76, size: 0.57 }
+    }
+    
 ];
-carImages[0].src = 'img/cars-motors/motorcycle.png';
-carImages[1].src = 'img/cars-motors/car1.png';
-carImages[2].src = 'img/cars-motors/Volkswagen Golf Mk1 Cabriolet.png';
+
+// Load all car body and wheel images
+carConfigs.forEach((config, index) => {
+    carBodyImages[index] = new Image();
+    carBodyImages[index].src = config.bodyImage;
+    
+    carWheelImages[index] = new Image();
+    carWheelImages[index].src = config.wheelImage;
+});
+
+// Wheel rotation tracking (in radians)
+let wheelRotation = 0;
 
 // -----------------------------------------------------------------------------
 // Level + vehicle data
@@ -138,11 +173,11 @@ let currentLevel = {
     ground2Height: 22
 };
 
-let selectedCar = 1;
+let selectedCar = 0;
 const cars = [
-    { name: "Motorcycle", acceleration: 1, mass: 1200 },
-    { name: "Sports Car", acceleration: 3, mass: 1400 },
-    { name: "Supercar", acceleration: 12, mass: 1500 }
+    { name: "Formula-1", acceleration: 12, mass: 800 },
+    { name: "Volkswagen Golf Mk1 Cabriolet", acceleration: 3, mass: 1400 },
+    { name: "McLaren P1", acceleration: 10, mass: 1500 }
 ];
 
 // -----------------------------------------------------------------------------
@@ -261,7 +296,7 @@ function getCarLengthMeters() {
 function getCarDrawDimensions(horizontalScale) {
     const drawWidth = car.lengthMeters * horizontalScale;
     let aspect = DEFAULT_CAR_ASPECT;
-    const img = carImages[selectedCar];
+    const img = carBodyImages[selectedCar];
 
     if (img && img.complete && img.naturalWidth > 0 && img.naturalHeight > 0) {
         aspect = img.naturalHeight / img.naturalWidth;
@@ -284,6 +319,7 @@ function updateCarScreenPosition() {
 
     const baseYGround1 = levelMetrics.ground1Y - drawHeight + CAR_GROUND_OFFSET * SCALE;
 
+
     if (!simulation.isRunning && !simulation.hasFinished) {
         car.x = levelMetrics.ground1X + RUN_START_OFFSET * horizontalScale;
         car.y = baseYGround1;
@@ -295,6 +331,7 @@ function updateCarScreenPosition() {
     if (simulation.success) {
         // Snap to the landing platform height
         car.y = levelMetrics.ground2Y - drawHeight + CAR_GROUND_OFFSET * SCALE;
+
     } else {
         car.y = baseYGround1 + car.worldY * SCALE;
     }
@@ -303,14 +340,47 @@ function updateCarScreenPosition() {
 function drawCar() {
     const centerX = car.x + car.width / 2;
     const centerY = car.y + car.height / 2;
-    const imageReady = carImages[selectedCar].complete && carImages[selectedCar].naturalWidth > 0;
+    
+    const bodyImg = carBodyImages[selectedCar];
+    const wheelImg = carWheelImages[selectedCar];
+    const config = carConfigs[selectedCar];
+    
+    const bodyReady = bodyImg && bodyImg.complete && bodyImg.naturalWidth > 0;
+    const wheelReady = wheelImg && wheelImg.complete && wheelImg.naturalWidth > 0;
 
     ctx.save();
     ctx.translate(centerX, centerY);
     ctx.rotate(car.rotation);
 
-    if (imageReady) {
-        ctx.drawImage(carImages[selectedCar], -car.width / 2, -car.height / 2, car.width, car.height);
+    if (bodyReady) {
+        // Draw the car body
+        ctx.drawImage(bodyImg, -car.width / 2, -car.height / 2, car.width, car.height);
+        
+        // Draw wheels if available
+        if (wheelReady && config) {
+            const wheelSize = car.height * config.frontWheel.size;
+            
+            // Calculate wheel positions relative to car center
+            const frontWheelX = -car.width / 2 + car.width * config.frontWheel.x;
+            const frontWheelY = -car.height / 2 + car.height * config.frontWheel.y;
+            
+            const rearWheelX = -car.width / 2 + car.width * config.rearWheel.x;
+            const rearWheelY = -car.height / 2 + car.height * config.rearWheel.y;
+            
+            // Draw front wheel with rotation
+            ctx.save();
+            ctx.translate(frontWheelX, frontWheelY);
+            ctx.rotate(wheelRotation);
+            ctx.drawImage(wheelImg, -wheelSize / 2, -wheelSize / 2, wheelSize, wheelSize);
+            ctx.restore();
+            
+            // Draw rear wheel with rotation
+            ctx.save();
+            ctx.translate(rearWheelX, rearWheelY);
+            ctx.rotate(wheelRotation);
+            ctx.drawImage(wheelImg, -wheelSize / 2, -wheelSize / 2, wheelSize, wheelSize);
+            ctx.restore();
+        }
     } else {
         ctx.fillStyle = '#FF5722';
         ctx.fillRect(-car.width / 2, -car.height / 2, car.width, car.height);
@@ -343,6 +413,9 @@ function resetSimulationState() {
     car.ax = 0;
     car.rotation = 0;
     car.angularVelocity = 0;
+    
+    // Reset wheel rotation
+    wheelRotation = 0;
 }
 
 function startSimulation() {
@@ -461,6 +534,14 @@ function updatePhysics(dt) {
     }
 
     simulation.elapsedTime += dt;
+    
+    // Update wheel rotation based on velocity
+    // Assume wheel radius is proportional to car height
+    const config = carConfigs[selectedCar];
+    const wheelRadius = (car.height * (config ? config.frontWheel.size : 0.3)) / 2 / SCALE;
+    if (wheelRadius > 0) {
+        wheelRotation += (car.vx * dt) / wheelRadius;
+    }
 
     // After a safe landing, roll to a stop on Ground 2 with simple friction
     if (simulation.hasLanded && simulation.success) {
@@ -484,59 +565,25 @@ function updatePhysics(dt) {
 
     // Ground run: accelerate along Ground 1 until takeoff
     if (!simulation.hasLaunched) {
-        const groundAccel = cars[selectedCar].acceleration;
-        const carFrontX = car.worldX + getCarLengthMeters();
-        const ground1End = currentLevel.ground1Length;
-        const frontHasNoGround = carFrontX > ground1End;
-        const rearStillOnGround = car.worldX <= ground1End;
+        car.ax = cars[selectedCar].acceleration;
+        car.vx += car.ax * dt;
+        car.worldX += car.vx * dt;
+        car.worldY = 0;
+        car.rotation = 0;
+        car.angularVelocity = 0;
 
-        // Normal run while fully on ground
-        if (!frontHasNoGround) {
-            car.ax = groundAccel;
-            car.vx += car.ax * dt;
-            car.worldX += car.vx * dt;
-            car.worldY = 0;
-            car.rotation = 0;
-            car.angularVelocity = 0;
-            return;
+        const takeoffLeftEdge = Math.max(0, currentLevel.ground1Length - getCarLengthMeters());
+        if (car.worldX >= takeoffLeftEdge) {
+            car.worldX = takeoffLeftEdge;
+            simulation.hasLaunched = true;
+            simulation.timeSinceLaunch = 0;
+            simulation.takeoffWorldX = car.worldX;
+            simulation.takeoffVelocity = car.vx;
+            car.ax = 0;
+            car.vy = 0;
+            // Begin rotating in the air with a slight random spin
+            car.angularVelocity = (Math.random() - 0.5) * INITIAL_AIR_SPIN;
         }
-
-        // Tipping phase: front is over the edge, rear still on ground -> pitch nose down
-        if (frontHasNoGround && rearStillOnGround) {
-            car.ax = groundAccel;
-            car.vx += car.ax * dt;
-            car.worldX += car.vx * dt;
-            car.worldY = 0;
-
-            const targetRotation = TIPPING_TARGET_NOSE_DOWN; // nose-down bias
-            const angAccel = (targetRotation - car.rotation) * TIPPING_STIFFNESS - car.angularVelocity * TIPPING_DAMPING;
-            car.angularVelocity += angAccel * dt;
-            car.angularVelocity = clamp(car.angularVelocity, -MAX_TIPPING_ANGULAR_VELOCITY, MAX_TIPPING_ANGULAR_VELOCITY);
-            car.rotation += car.angularVelocity * dt;
-            car.rotation = clamp(car.rotation, MIN_AIR_ROTATION, MAX_AIR_ROTATION);
-
-            // Release into flight once rotation tips far enough or rear leaves ground
-            const rearOffGround = car.worldX > ground1End;
-            if (Math.abs(car.rotation) >= TIPPING_RELEASE_ANGLE || rearOffGround) {
-                simulation.hasLaunched = true;
-                simulation.timeSinceLaunch = 0;
-                simulation.takeoffWorldX = car.worldX;
-                simulation.takeoffVelocity = car.vx;
-                car.ax = 0;
-                car.vy = 0;
-                // keep current angular velocity to carry the tip into the air
-            }
-            return;
-        }
-
-        // Rear has also cleared: start airborne phase
-        simulation.hasLaunched = true;
-        simulation.timeSinceLaunch = 0;
-        simulation.takeoffWorldX = car.worldX;
-        simulation.takeoffVelocity = car.vx;
-        car.ax = 0;
-        car.vy = 0;
-        car.angularVelocity = (Math.random() - 0.5) * INITIAL_AIR_SPIN;
         return;
     }
 
@@ -764,7 +811,7 @@ function animate(timestamp) {
 // Asset loading instrumentation
 // -----------------------------------------------------------------------------
 let imagesLoaded = 0;
-const totalImages = 5;
+const totalImages = 2 + carConfigs.length * 2; // ground images + body + wheel for each car
 
 function imageLoaded() {
     imagesLoaded++;
@@ -786,10 +833,17 @@ ground2Img.onerror = () => {
     imageLoaded();
 };
 
-carImages.forEach((img, index) => {
-    img.onload = imageLoaded;
-    img.onerror = () => {
-        console.error(`Failed to load car image ${index}`);
+// Load car body and wheel images
+carConfigs.forEach((config, index) => {
+    carBodyImages[index].onload = imageLoaded;
+    carBodyImages[index].onerror = () => {
+        console.error(`Failed to load car body image: ${config.bodyImage}`);
+        imageLoaded();
+    };
+    
+    carWheelImages[index].onload = imageLoaded;
+    carWheelImages[index].onerror = () => {
+        console.error(`Failed to load wheel image: ${config.wheelImage}`);
         imageLoaded();
     };
 });
