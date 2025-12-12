@@ -82,8 +82,11 @@ const simulation = {
     hasLanded: false,
     fallingAfterCrash: false,
     showStopwatch: false,
+    showAccelStopwatch: false,
     success: null,
     elapsedTime: 0,
+    accelerationTime: 0,
+    finalAccelTime: 0,
     timeSinceLaunch: 0,
     finalAirTime: 0,
     takeoffWorldX: 0,
@@ -339,8 +342,8 @@ function drawLevel() {
         ground1Y - 20
     );
 
-    // Draw stopwatch from launch until restart/next level
-    if (simulation.showStopwatch) {
+    // Draw stopwatch from start of simulation until restart/next level
+    if (simulation.showStopwatch || simulation.showAccelStopwatch) {
         drawStopwatch();
     }
 
@@ -464,8 +467,11 @@ function resetSimulationState() {
     simulation.hasLanded = false;
     simulation.fallingAfterCrash = false;
     simulation.showStopwatch = false;
+    simulation.showAccelStopwatch = false;
     simulation.success = null;
     simulation.elapsedTime = 0;
+    simulation.accelerationTime = 0;
+    simulation.finalAccelTime = 0;
     simulation.timeSinceLaunch = 0;
     simulation.finalAirTime = 0;
     simulation.takeoffWorldX = 0;
@@ -645,6 +651,9 @@ function updatePhysics(dt) {
 
     // Ground run: accelerate along Ground 1 until takeoff
     if (!simulation.hasLaunched) {
+        simulation.showAccelStopwatch = true;
+        simulation.accelerationTime += dt;
+        
         car.ax = chosenAcceleration;
         car.vx += car.ax * dt;
         car.worldX += car.vx * dt;
@@ -657,6 +666,7 @@ function updatePhysics(dt) {
             car.worldX = takeoffLeftEdge;
             simulation.hasLaunched = true;
             simulation.showStopwatch = true;
+            simulation.finalAccelTime = simulation.accelerationTime;
             simulation.timeSinceLaunch = 0;
             simulation.takeoffWorldX = car.worldX;
             simulation.takeoffVelocity = car.vx;
@@ -889,6 +899,12 @@ function computePhysicsData() {
     const requiredHorizontalMin = currentLevel.gap;
     const requiredHorizontalMax = currentLevel.gap + currentLevel.ground2Length;
     const success = horizontalDistance >= requiredHorizontalMin && horizontalDistance <= requiredHorizontalMax;
+    
+    // Calculate minimum acceleration needed to clear the gap
+    // Required velocity: v = gap / fallTime
+    // Required acceleration: a = v² / (2 * runDistance)
+    const requiredVelocity = fallTime > 0 ? requiredHorizontalMin / fallTime : 0;
+    const minAccelToSucceed = runDistance > 0 ? (requiredVelocity * requiredVelocity) / (2 * runDistance) : 0;
 
     return {
         acceleration,
@@ -901,7 +917,9 @@ function computePhysicsData() {
         requiredHorizontalMin,
         requiredHorizontalMax,
         dropHeight,
-        success
+        success,
+        minAccelToSucceed,
+        requiredVelocity
     };
 }
 
@@ -949,11 +967,56 @@ function refreshPhysicsDisplays(data, statusText) {
         `;
     }
 
+    // Build step-by-step calculation explanations
+    const stepByStep = `
+        <div class="step-by-step">
+            <h4>📐 Step-by-Step Calculations</h4>
+            
+            <div class="calc-section">
+                <h5>1. Takeoff Speed (v)</h5>
+                <p class="formula">v = √(2 × a × d)</p>
+                <p class="values">v = √(2 × ${data.acceleration.toFixed(2)} × ${data.runDistance.toFixed(2)})</p>
+                <p class="result">v = <strong>${data.takeoffVelocity.toFixed(2)} m/s</strong></p>
+            </div>
+            
+            <div class="calc-section">
+                <h5>2. Acceleration Time (t₁)</h5>
+                <p class="formula">t₁ = v / a</p>
+                <p class="values">t₁ = ${data.takeoffVelocity.toFixed(2)} / ${data.acceleration.toFixed(2)}</p>
+                <p class="result">t₁ = <strong>${data.timeToTakeoff.toFixed(2)} s</strong></p>
+            </div>
+            
+            <div class="calc-section">
+                <h5>3. Air Time (t₂)</h5>
+                <p class="formula">t₂ = √(2 × h / g)</p>
+                <p class="values">t₂ = √(2 × ${data.dropHeight.toFixed(2)} / ${GRAVITY})</p>
+                <p class="result">t₂ = <strong>${data.fallTime.toFixed(2)} s</strong></p>
+            </div>
+            
+            <div class="calc-section">
+                <h5>4. Horizontal Distance (x)</h5>
+                <p class="formula">x = v × t₂</p>
+                <p class="values">x = ${data.takeoffVelocity.toFixed(2)} × ${data.fallTime.toFixed(2)}</p>
+                <p class="result">x = <strong>${data.horizontalDistance.toFixed(2)} m</strong></p>
+            </div>
+            
+            <div class="calc-section highlight">
+                <h5>5. Minimum Acceleration to Succeed</h5>
+                <p class="formula">v_min = gap / t₂ = ${data.requiredHorizontalMin.toFixed(2)} / ${data.fallTime.toFixed(2)} = ${data.requiredVelocity.toFixed(2)} m/s</p>
+                <p class="formula">a_min = v_min² / (2 × d)</p>
+                <p class="values">a_min = ${data.requiredVelocity.toFixed(2)}² / (2 × ${data.runDistance.toFixed(2)})</p>
+                <p class="result">a_min = <strong>${data.minAccelToSucceed.toFixed(2)} m/s²</strong></p>
+            </div>
+        </div>
+    `;
+
     if (physicsCalculationsPanel) {
         physicsCalculationsPanel.innerHTML = `
             <h3>Physics Calculations</h3>
             ${mathLines.map(line => `<p>${line}</p>`).join('')}
+            <p><strong>Min. Acceleration Needed:</strong> ${data.minAccelToSucceed.toFixed(2)} m/s²</p>
             <p><strong>Status:</strong> ${statusText}</p>
+            ${stepByStep}
         `;
     }
 }
@@ -968,39 +1031,67 @@ function updateMathPanel(statusPrefix = 'Prediction:') {
 // Stopwatch display
 // -----------------------------------------------------------------------------
 function drawStopwatch() {
-    // Use finalAirTime if set (after landing), otherwise use live time
+    const boxWidth = 180;
+    const boxHeight = 60;
+    const gap = 20;
+    const totalWidth = boxWidth * 2 + gap;
+    const startX = INTERNAL_WIDTH / 2 - totalWidth / 2;
+    const boxY = 20;
+    
+    // Draw Acceleration Time stopwatch (left)
+    if (simulation.showAccelStopwatch) {
+        const accelTime = simulation.finalAccelTime > 0 ? simulation.finalAccelTime : simulation.accelerationTime;
+        const accelMinutes = Math.floor(accelTime / 60);
+        const accelSeconds = Math.floor(accelTime % 60);
+        const accelMs = Math.floor((accelTime % 1) * 100);
+        const accelTimeString = `${accelMinutes.toString().padStart(2, '0')}:${accelSeconds.toString().padStart(2, '0')}.${accelMs.toString().padStart(2, '0')}`;
+        
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+        ctx.beginPath();
+        ctx.roundRect(startX, boxY, boxWidth, boxHeight, 10);
+        ctx.fill();
+        
+        ctx.fillStyle = '#aaa';
+        ctx.font = 'bold 12px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText('ACCEL TIME', startX + boxWidth / 2, boxY + 16);
+        
+        // Color: white during accel, blue once launched
+        if (simulation.hasLaunched) {
+            ctx.fillStyle = '#2196F3';
+        } else {
+            ctx.fillStyle = '#fff';
+        }
+        ctx.font = 'bold 28px monospace';
+        ctx.fillText(accelTimeString, startX + boxWidth / 2, boxY + 46);
+    }
+    
+    // Draw Air Time stopwatch (right)
+    const airBoxX = startX + boxWidth + gap;
     const airTime = simulation.finalAirTime > 0 ? simulation.finalAirTime : simulation.timeSinceLaunch;
     const minutes = Math.floor(airTime / 60);
     const seconds = Math.floor(airTime % 60);
     const milliseconds = Math.floor((airTime % 1) * 100);
-    
     const timeString = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}.${milliseconds.toString().padStart(2, '0')}`;
-    
-    // Draw stopwatch background
-    const boxWidth = 200;
-    const boxHeight = 60;
-    const boxX = INTERNAL_WIDTH / 2 - boxWidth / 2;
-    const boxY = 20;
     
     ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
     ctx.beginPath();
-    ctx.roundRect(boxX, boxY, boxWidth, boxHeight, 10);
+    ctx.roundRect(airBoxX, boxY, boxWidth, boxHeight, 10);
     ctx.fill();
     
-    // Draw label
     ctx.fillStyle = '#aaa';
-    ctx.font = 'bold 14px Arial';
+    ctx.font = 'bold 12px Arial';
     ctx.textAlign = 'center';
-    ctx.fillText('AIR TIME', INTERNAL_WIDTH / 2, boxY + 18);
+    ctx.fillText('AIR TIME', airBoxX + boxWidth / 2, boxY + 16);
     
-    // Draw time - green if still flying, yellow if landed successfully, red if crashed
+    // Draw time - green if landed successfully, red if crashed, white if still flying
     if (simulation.hasFinished || simulation.hasLanded) {
         ctx.fillStyle = simulation.success ? '#4CAF50' : '#f44336';
     } else {
         ctx.fillStyle = '#fff';
     }
-    ctx.font = 'bold 32px monospace';
-    ctx.fillText(timeString, INTERNAL_WIDTH / 2, boxY + 48);
+    ctx.font = 'bold 28px monospace';
+    ctx.fillText(timeString, airBoxX + boxWidth / 2, boxY + 46);
 }
 
 // -----------------------------------------------------------------------------
