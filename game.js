@@ -210,6 +210,8 @@ let wheelRotation = 0;
 // -----------------------------------------------------------------------------
 // Level + vehicle data
 // -----------------------------------------------------------------------------
+let currentLevelNumber = 1;
+
 let currentLevel = {
     ground1Length: 26,
     ground1Height: 26,
@@ -221,7 +223,7 @@ let currentLevel = {
 let selectedCar = 0;
 const cars = [
     { name: "Burner", acceleration: 9, mass: 900 },
-    { name: "Formula-1", acceleration: 12, mass: 800 },
+    { name: "Formula-1", acceleration: 14, mass: 800 },
     { name: "Jeep Wrangler", acceleration: 4, mass: 2000 },
     { name: "McLaren P1", acceleration: 10, mass: 1500 },
     { name: "Nissan GT-R R35", acceleration: 9, mass: 1700 },
@@ -575,6 +577,12 @@ function handleLanding(outcome) {
         } else {
             statusText = 'Result: ❌ Missed the platform!';
         }
+        
+        // Show restart button on crash
+        const restartBtn = document.getElementById('restartButton');
+        if (restartBtn) {
+            restartBtn.style.display = 'block';
+        }
     }
 
     lastPhysicsData = actualData;
@@ -612,6 +620,12 @@ function updatePhysics(dt) {
             car.vx = 0;
             simulation.isRunning = false;
             simulation.hasFinished = true;
+            
+            // Show next level button on successful landing
+            const nextLevelBtn = document.getElementById('nextLevelButton');
+            if (nextLevelBtn) {
+                nextLevelBtn.style.display = 'block';
+            }
         }
         return;
     }
@@ -666,7 +680,34 @@ function updatePhysics(dt) {
     const groundHeight = getGroundHeightAt(carFrontX);
     const ground2Start = currentLevel.ground1Length + currentLevel.gap;
     const ground2End = ground2Start + currentLevel.ground2Length;
+    const ground2HeightDrop = Math.max(0, currentLevel.ground1Height - currentLevel.ground2Height);
     const killPlaneY = getKillPlaneY();
+    
+    // Check for wall collision: car hits the side of Ground 2
+    // Only triggers if the car front JUST crossed the wall AND is significantly below the platform
+    if (!simulation.fallingAfterCrash) {
+        const previousFrontX = carFrontX - car.vx * dt;
+        const justCrossedWall = previousFrontX < ground2Start && carFrontX >= ground2Start;
+        // Car must be well below platform surface to count as wall hit (not just touching)
+        const tooLowToLand = car.worldY > ground2HeightDrop + 2.0;
+        
+        if (justCrossedWall && tooLowToLand) {
+            // Hit the wall! Start falling and rotating (nose down)
+            simulation.fallingAfterCrash = true;
+            simulation.hasFinished = false;
+            simulation.isRunning = true;
+            simulation.hasLaunched = true;
+            
+            // Stop at the wall
+            car.worldX = ground2Start - getCarLengthMeters();
+            car.vx = 0;
+            car.ax = 0;
+            
+            // Add rotation - gravity pulls the front down (positive = clockwise = nose down)
+            car.angularVelocity = Math.PI * 1.5; // Start rotating nose-down with stronger spin
+        }
+    }
+    
     if (!simulation.fallingAfterCrash) {
         if (groundHeight !== NO_GROUND) {
             if (car.worldY >= groundHeight) {
@@ -719,7 +760,15 @@ function updatePhysics(dt) {
             });
         }
     } else {
-        // Already in a post-crash fall: finish once we reach the canyon floor.
+        // Already in a post-crash fall: continue rotating as it falls
+        // Apply gravity to rotation (nose tips down more as it falls)
+        car.angularVelocity += GRAVITY * 0.02 * dt; // Gentle rotation acceleration
+        car.angularVelocity = clamp(car.angularVelocity, -MAX_TIPPING_ANGULAR_VELOCITY, MAX_TIPPING_ANGULAR_VELOCITY);
+        car.rotation += car.angularVelocity * dt;
+        // Allow more rotation range during crash
+        car.rotation = clamp(car.rotation, -Math.PI / 2, Math.PI / 2);
+        
+        // Finish once we reach the canyon floor.
         if (car.worldY >= killPlaneY) {
             car.worldY = killPlaneY;
             simulation.fallingAfterCrash = false;
@@ -747,8 +796,27 @@ physicsCalculationsPanel = document.createElement('div');
 physicsCalculationsPanel.id = 'physicsCalculationsPanel';
 physicsCalculationsPanel.className = 'physics-calculations';
 
+// Create restart button
+const restartButtonEl = document.createElement('button');
+restartButtonEl.id = 'restartButton';
+restartButtonEl.className = 'restart-button';
+restartButtonEl.textContent = 'Restart';
+restartButtonEl.style.display = 'none';
+
+// Create next level button
+const nextLevelButtonEl = document.createElement('button');
+nextLevelButtonEl.id = 'nextLevelButton';
+nextLevelButtonEl.className = 'next-level-button';
+nextLevelButtonEl.textContent = 'Next Level';
+nextLevelButtonEl.style.display = 'none';
+
+// Get level display element
+const levelDisplayEl = document.querySelector('.level-display');
+
 if (gameContainerEl && carSelectionEl) {
     gameContainerEl.insertBefore(physicsCalculationsPanel, carSelectionEl.nextSibling);
+    gameContainerEl.appendChild(restartButtonEl);
+    gameContainerEl.appendChild(nextLevelButtonEl);
 }
 
 function computePhysicsData() {
@@ -939,6 +1007,66 @@ startButtonEl.addEventListener('click', () => {
 
     console.log('Simulation started!');
     startSimulation();
+});
+
+// Restart button click handler
+restartButtonEl.addEventListener('click', () => {
+    // Hide restart button
+    restartButtonEl.style.display = 'none';
+    
+    // Reset to level 1
+    currentLevelNumber = 1;
+    currentLevel.gap = 10;
+    
+    // Update level display
+    if (levelDisplayEl) {
+        levelDisplayEl.textContent = `Level ${currentLevelNumber}`;
+    }
+    
+    // Show car selection and start button again
+    if (carSelectionEl) {
+        carSelectionEl.classList.remove('hidden');
+    }
+    if (physicsCalculationsPanel) {
+        physicsCalculationsPanel.classList.remove('show');
+    }
+    startButtonEl.classList.remove('hidden');
+    
+    // Reset simulation
+    resetSimulationState();
+    updateMathPanel();
+    
+    console.log('Simulation restarted! Back to Level 1');
+});
+
+// Next Level button click handler
+nextLevelButtonEl.addEventListener('click', () => {
+    // Hide next level button
+    nextLevelButtonEl.style.display = 'none';
+    
+    // Increase level number and gap
+    currentLevelNumber++;
+    currentLevel.gap += 5;
+    
+    // Update level display
+    if (levelDisplayEl) {
+        levelDisplayEl.textContent = `Level ${currentLevelNumber}`;
+    }
+    
+    // Show car selection and start button again
+    if (carSelectionEl) {
+        carSelectionEl.classList.remove('hidden');
+    }
+    if (physicsCalculationsPanel) {
+        physicsCalculationsPanel.classList.remove('show');
+    }
+    startButtonEl.classList.remove('hidden');
+    
+    // Reset simulation
+    resetSimulationState();
+    updateMathPanel();
+    
+    console.log(`Proceeding to Level ${currentLevelNumber} with gap: ${currentLevel.gap}m`);
 });
 
 // -----------------------------------------------------------------------------
