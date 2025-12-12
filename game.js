@@ -107,7 +107,7 @@ const camera = {
     targetZoom: 1,
     followSpeed: 10,      // How fast camera catches up to target
     zoomSpeed: 2,         // How fast zoom changes
-    activeZoom: 5,      // Zoom level when simulation is running
+    activeZoom: 4,      // Zoom level when simulation is running
     defaultZoom: 1        // Zoom level when not running
 };
 
