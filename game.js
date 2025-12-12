@@ -81,9 +81,11 @@ const simulation = {
     hasFinished: false,
     hasLanded: false,
     fallingAfterCrash: false,
+    showStopwatch: false,
     success: null,
     elapsedTime: 0,
     timeSinceLaunch: 0,
+    finalAirTime: 0,
     takeoffWorldX: 0,
     takeoffVelocity: 0,
     landDropHeight: 0,
@@ -337,6 +339,11 @@ function drawLevel() {
         ground1Y - 20
     );
 
+    // Draw stopwatch from launch until restart/next level
+    if (simulation.showStopwatch) {
+        drawStopwatch();
+    }
+
     ctx.fillText(
         `Ground 2: ${currentLevel.ground2Length}m × ${currentLevel.ground2Height}m`,
         ground2X + ground2Width / 2,
@@ -456,9 +463,11 @@ function resetSimulationState() {
     simulation.hasFinished = false;
     simulation.hasLanded = false;
     simulation.fallingAfterCrash = false;
+    simulation.showStopwatch = false;
     simulation.success = null;
     simulation.elapsedTime = 0;
     simulation.timeSinceLaunch = 0;
+    simulation.finalAirTime = 0;
     simulation.takeoffWorldX = 0;
     simulation.takeoffVelocity = 0;
     simulation.landDropHeight = 0;
@@ -522,6 +531,7 @@ function handleLanding(outcome) {
     } = outcome;
 
     simulation.success = success;
+    simulation.finalAirTime = simulation.timeSinceLaunch;
 
     const baseData = lastPhysicsData ? { ...lastPhysicsData } : computePhysicsData();
     const horizontalDistance = Math.max(0, car.worldX - simulation.takeoffWorldX);
@@ -646,6 +656,7 @@ function updatePhysics(dt) {
         if (car.worldX >= takeoffLeftEdge) {
             car.worldX = takeoffLeftEdge;
             simulation.hasLaunched = true;
+            simulation.showStopwatch = true;
             simulation.timeSinceLaunch = 0;
             simulation.takeoffWorldX = car.worldX;
             simulation.takeoffVelocity = car.vx;
@@ -951,6 +962,45 @@ function updateMathPanel(statusPrefix = 'Prediction:') {
     lastPhysicsData = computePhysicsData();
     const statusText = buildPredictionStatus(lastPhysicsData, statusPrefix);
     refreshPhysicsDisplays(lastPhysicsData, statusText);
+}
+
+// -----------------------------------------------------------------------------
+// Stopwatch display
+// -----------------------------------------------------------------------------
+function drawStopwatch() {
+    // Use finalAirTime if set (after landing), otherwise use live time
+    const airTime = simulation.finalAirTime > 0 ? simulation.finalAirTime : simulation.timeSinceLaunch;
+    const minutes = Math.floor(airTime / 60);
+    const seconds = Math.floor(airTime % 60);
+    const milliseconds = Math.floor((airTime % 1) * 100);
+    
+    const timeString = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}.${milliseconds.toString().padStart(2, '0')}`;
+    
+    // Draw stopwatch background
+    const boxWidth = 200;
+    const boxHeight = 60;
+    const boxX = INTERNAL_WIDTH / 2 - boxWidth / 2;
+    const boxY = 20;
+    
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+    ctx.beginPath();
+    ctx.roundRect(boxX, boxY, boxWidth, boxHeight, 10);
+    ctx.fill();
+    
+    // Draw label
+    ctx.fillStyle = '#aaa';
+    ctx.font = 'bold 14px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText('AIR TIME', INTERNAL_WIDTH / 2, boxY + 18);
+    
+    // Draw time - green if still flying, yellow if landed successfully, red if crashed
+    if (simulation.hasFinished || simulation.hasLanded) {
+        ctx.fillStyle = simulation.success ? '#4CAF50' : '#f44336';
+    } else {
+        ctx.fillStyle = '#fff';
+    }
+    ctx.font = 'bold 32px monospace';
+    ctx.fillText(timeString, INTERNAL_WIDTH / 2, boxY + 48);
 }
 
 // -----------------------------------------------------------------------------
