@@ -35,6 +35,8 @@ resizeCanvas();
 // -----------------------------------------------------------------------------
 const SCALE = 20;
 const GRAVITY = 9.8;
+const REFERENCE_MASS = 1000;  // Reference mass (kg) for gravity scaling - heavier cars fall faster
+const MASS_GRAVITY_FACTOR = 0.3;  // How much mass affects gravity (0 = no effect, 1 = strong effect)
 const RUN_START_OFFSET = 1;
 
 const MIN_AIR_ROTATION = -Math.PI / 12;
@@ -681,8 +683,13 @@ function updatePhysics(dt) {
     // Airborne: integrate dt-based motion with gravity and angular dynamics
     simulation.timeSinceLaunch += dt;
 
+    // Mass affects gravity - heavier cars are pulled down harder
+    const mass = cars[selectedCar].mass;
+    const massRatio = mass / REFERENCE_MASS;
+    const effectiveGravity = GRAVITY * (1 + (massRatio - 1) * MASS_GRAVITY_FACTOR);
+
     car.ax = 0; // no thrust in mid-air
-    car.vy += GRAVITY * dt;
+    car.vy += effectiveGravity * dt;
     car.worldX += car.vx * dt;
     car.worldY += car.vy * dt;
 
@@ -889,6 +896,7 @@ function updateAccelerationSlider() {
 function computePhysicsData() {
     const acceleration = chosenAcceleration;
     const carLength = getCarLengthMeters();
+    const mass = cars[selectedCar].mass;
     const takeoffLeftEdge = Math.max(0, currentLevel.ground1Length - carLength);
     const runDistance = Math.max(0, takeoffLeftEdge - RUN_START_OFFSET);
     const takeoffVelocity = Math.sqrt(Math.max(0, 2 * acceleration * runDistance));
@@ -905,10 +913,23 @@ function computePhysicsData() {
     // Required acceleration: a = v² / (2 * runDistance)
     const requiredVelocity = fallTime > 0 ? requiredHorizontalMin / fallTime : 0;
     const minAccelToSucceed = runDistance > 0 ? (requiredVelocity * requiredVelocity) / (2 * runDistance) : 0;
+    
+    // Force and energy calculations using mass
+    const force = mass * acceleration;  // F = ma (Newtons)
+    const weight = mass * GRAVITY;  // W = mg (Newtons) - gravitational force while airborne
+    
+    // Effective gravity based on mass (heavier cars fall faster in this simulation)
+    const massRatio = mass / REFERENCE_MASS;
+    const effectiveGravity = GRAVITY * (1 + (massRatio - 1) * MASS_GRAVITY_FACTOR);
+    const effectiveWeight = mass * effectiveGravity;  // Actual pulling force in simulation
+    
+    const kineticEnergy = 0.5 * mass * takeoffVelocity * takeoffVelocity;  // KE = ½mv² (Joules)
+    const minForceNeeded = mass * minAccelToSucceed;  // Minimum force to succeed
 
     return {
         acceleration,
         carLength,
+        mass,
         runDistance,
         takeoffVelocity,
         timeToTakeoff,
@@ -919,7 +940,13 @@ function computePhysicsData() {
         dropHeight,
         success,
         minAccelToSucceed,
-        requiredVelocity
+        requiredVelocity,
+        force,
+        weight,
+        effectiveGravity,
+        effectiveWeight,
+        kineticEnergy,
+        minForceNeeded
     };
 }
 
@@ -944,9 +971,14 @@ function buildOptionalLine(label, value, formatter = (v) => v.toFixed(2)) {
 
 function refreshPhysicsDisplays(data, statusText) {
     const mathLines = [
+        buildOptionalLine('Car Mass', data.mass, (v) => `${v.toLocaleString()} kg`),
         buildOptionalLine('Acceleration', data.acceleration, (v) => `${v.toFixed(2)} m/s²`),
+        buildOptionalLine('Engine Force', data.force, (v) => `${v.toLocaleString()} N`),
+        buildOptionalLine('Effective Gravity', data.effectiveGravity, (v) => `${v.toFixed(2)} m/s²`),
+        buildOptionalLine('Effective Weight', data.effectiveWeight, (v) => `${v.toLocaleString()} N`),
         buildOptionalLine('Run-up Distance', data.runDistance, (v) => `${v.toFixed(2)} m`),
         buildOptionalLine('Takeoff Speed', data.takeoffVelocity, (v) => `${v.toFixed(2)} m/s`),
+        buildOptionalLine('Kinetic Energy', data.kineticEnergy, (v) => `${(v / 1000).toFixed(2)} kJ`),
         buildOptionalLine('Acceleration Time', data.timeToTakeoff, (v) => `${v.toFixed(2)} s`),
         buildOptionalLine('Air Time', data.fallTime, (v) => `${v.toFixed(2)} s`),
         buildOptionalLine(
@@ -973,39 +1005,65 @@ function refreshPhysicsDisplays(data, statusText) {
             <h4>📐 Step-by-Step Calculations</h4>
             
             <div class="calc-section">
-                <h5>1. Takeoff Speed (v)</h5>
+                <h5>1. Engine Force (F)</h5>
+                <p class="formula">F = m × a</p>
+                <p class="values">F = ${data.mass.toLocaleString()} × ${data.acceleration.toFixed(2)}</p>
+                <p class="result">F = <strong>${data.force.toLocaleString()} N</strong></p>
+            </div>
+            
+            <div class="calc-section">
+                <h5>2. Effective Gravity & Weight (in air)</h5>
+                <p class="formula">g_eff = g × (1 + (m/m_ref - 1) × factor)</p>
+                <p class="values">g_eff = ${GRAVITY} × (1 + (${data.mass.toLocaleString()}/${REFERENCE_MASS} - 1) × ${MASS_GRAVITY_FACTOR})</p>
+                <p class="result">g_eff = <strong>${data.effectiveGravity.toFixed(2)} m/s²</strong></p>
+                <p class="formula">W_eff = m × g_eff</p>
+                <p class="values">W_eff = ${data.mass.toLocaleString()} × ${data.effectiveGravity.toFixed(2)}</p>
+                <p class="result">W_eff = <strong>${data.effectiveWeight.toLocaleString()} N</strong> (pulling car down while airborne)</p>
+            </div>
+            
+            <div class="calc-section">
+                <h5>3. Takeoff Speed (v)</h5>
                 <p class="formula">v = √(2 × a × d)</p>
                 <p class="values">v = √(2 × ${data.acceleration.toFixed(2)} × ${data.runDistance.toFixed(2)})</p>
                 <p class="result">v = <strong>${data.takeoffVelocity.toFixed(2)} m/s</strong></p>
             </div>
             
             <div class="calc-section">
-                <h5>2. Acceleration Time (t₁)</h5>
+                <h5>4. Kinetic Energy at Takeoff (KE)</h5>
+                <p class="formula">KE = ½ × m × v²</p>
+                <p class="values">KE = ½ × ${data.mass.toLocaleString()} × ${data.takeoffVelocity.toFixed(2)}²</p>
+                <p class="result">KE = <strong>${(data.kineticEnergy / 1000).toFixed(2)} kJ</strong></p>
+            </div>
+            
+            <div class="calc-section">
+                <h5>5. Acceleration Time (t₁)</h5>
                 <p class="formula">t₁ = v / a</p>
                 <p class="values">t₁ = ${data.takeoffVelocity.toFixed(2)} / ${data.acceleration.toFixed(2)}</p>
                 <p class="result">t₁ = <strong>${data.timeToTakeoff.toFixed(2)} s</strong></p>
             </div>
             
             <div class="calc-section">
-                <h5>3. Air Time (t₂)</h5>
+                <h5>6. Air Time (t₂)</h5>
                 <p class="formula">t₂ = √(2 × h / g)</p>
                 <p class="values">t₂ = √(2 × ${data.dropHeight.toFixed(2)} / ${GRAVITY})</p>
                 <p class="result">t₂ = <strong>${data.fallTime.toFixed(2)} s</strong></p>
             </div>
             
             <div class="calc-section">
-                <h5>4. Horizontal Distance (x)</h5>
+                <h5>7. Horizontal Distance (x)</h5>
                 <p class="formula">x = v × t₂</p>
                 <p class="values">x = ${data.takeoffVelocity.toFixed(2)} × ${data.fallTime.toFixed(2)}</p>
                 <p class="result">x = <strong>${data.horizontalDistance.toFixed(2)} m</strong></p>
             </div>
             
             <div class="calc-section highlight">
-                <h5>5. Minimum Acceleration to Succeed</h5>
+                <h5>8. Minimum Requirements to Succeed</h5>
                 <p class="formula">v_min = gap / t₂ = ${data.requiredHorizontalMin.toFixed(2)} / ${data.fallTime.toFixed(2)} = ${data.requiredVelocity.toFixed(2)} m/s</p>
                 <p class="formula">a_min = v_min² / (2 × d)</p>
                 <p class="values">a_min = ${data.requiredVelocity.toFixed(2)}² / (2 × ${data.runDistance.toFixed(2)})</p>
                 <p class="result">a_min = <strong>${data.minAccelToSucceed.toFixed(2)} m/s²</strong></p>
+                <p class="formula">F_min = m × a_min</p>
+                <p class="result">F_min = <strong>${data.minForceNeeded.toLocaleString()} N</strong></p>
             </div>
         </div>
     `;
