@@ -105,9 +105,9 @@ const camera = {
     targetY: 0,
     zoom: 1,
     targetZoom: 1,
-    followSpeed: 3,      // How fast camera catches up to target
+    followSpeed: 10,      // How fast camera catches up to target
     zoomSpeed: 2,         // How fast zoom changes
-    activeZoom: 2.5,      // Zoom level when simulation is running
+    activeZoom: 5,      // Zoom level when simulation is running
     defaultZoom: 1        // Zoom level when not running
 };
 
@@ -1342,7 +1342,7 @@ restartButtonEl.addEventListener('click', () => {
     // Reset to level 1
     currentLevelNumber = 1;
     currentLevel.gap = 15;
-    currentLevel.ground2Height = 8; // Reset ground2 height to initial value
+    currentLevel.ground2Height = 23; // Reset ground2 height to initial value
     
     // Update level display
     if (levelDisplayEl) {
