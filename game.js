@@ -246,7 +246,8 @@ function computeLevelMetrics() {
 
     const gapWidth = currentLevel.gap * horizontalScale;
     const ground1Width = currentLevel.ground1Length * horizontalScale;
-    const ground2Width = currentLevel.ground2Length * horizontalScale;
+    // Ground2 extends from gap to the right edge of the canvas
+    const ground2Width = INTERNAL_WIDTH - (ground1Width + gapWidth);
 
     const ground1Height = currentLevel.ground1Height * SCALE;
     const ground2Height = currentLevel.ground2Height * SCALE;
@@ -484,7 +485,6 @@ function startSimulation() {
 function getGroundHeightAt(frontX) {
     const ground1End = currentLevel.ground1Length;
     const ground2Start = ground1End + currentLevel.gap;
-    const ground2End = ground2Start + currentLevel.ground2Length;
     const ground2Height = Math.max(0, currentLevel.ground1Height - currentLevel.ground2Height);
     const carRearX = car.worldX;
 
@@ -497,7 +497,8 @@ function getGroundHeightAt(frontX) {
         return 0;
     }
 
-    if (frontX >= ground2Start && frontX <= ground2End) {
+    // Ground 2 extends to the right edge of the canvas (no right boundary)
+    if (frontX >= ground2Start) {
         return ground2Height;
     }
 
@@ -748,8 +749,8 @@ function updatePhysics(dt) {
                 }
             }
         } else if (car.worldY >= killPlaneY) {
-            const shortFall = carFrontX < ground2Start;
-            const reason = shortFall ? 'short' : 'long';
+            // Car fell into the gap - only possible if it fell short
+            const reason = 'short';
             car.worldY = killPlaneY;
 
             handleLanding({
@@ -1066,6 +1067,7 @@ restartButtonEl.addEventListener('click', () => {
     // Reset to level 1
     currentLevelNumber = 1;
     currentLevel.gap = 10;
+    currentLevel.ground2Height = 22; // Reset ground2 height to initial value
     
     // Update level display
     if (levelDisplayEl) {
@@ -1094,9 +1096,10 @@ nextLevelButtonEl.addEventListener('click', () => {
     // Hide next level button
     nextLevelButtonEl.style.display = 'none';
     
-    // Increase level number and gap
+    // Increase level number, gap, and lower ground2 height
     currentLevelNumber++;
     currentLevel.gap += 5;
+    currentLevel.ground2Height = Math.max(5, currentLevel.ground2Height - 2); // Lower ground2, minimum 5m
     
     // Update level display
     if (levelDisplayEl) {
