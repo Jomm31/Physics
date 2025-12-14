@@ -1029,7 +1029,8 @@ function computePhysicsData() {
     
     // Height fallen using kinematic equation: h = v₀t + ½gt²
     // Since initial vertical velocity v₀ = 0, this simplifies to h = ½gt²
-    const heightFallen = 0.5 * effectiveGravity * fallTime * fallTime;
+    // Uses standard gravity (ignoring air resistance - all objects fall at same rate)
+    const heightFallen = 0.5 * GRAVITY * fallTime * fallTime;
 
     return {
         acceleration,
@@ -1180,7 +1181,7 @@ function refreshPhysicsDisplays(data, statusText) {
             <div class="calc-section">
                 <h5>9. Height Fallen (Vertical Displacement)</h5>
                 <p class="formula">h = v₀t + ½gt²  (initial vertical velocity v₀ = 0)</p>
-                <p class="values">h = 0 + ½ × ${data.effectiveGravity.toFixed(2)} × ${data.fallTime.toFixed(2)}²</p>
+                <p class="values">h = 0 + ½ × ${GRAVITY} × ${data.fallTime.toFixed(2)}²</p>
                 <p class="result">h = <strong>${data.heightFallen.toFixed(2)} m</strong></p>
             </div>
             
@@ -1397,6 +1398,9 @@ restartButtonEl.addEventListener('click', () => {
     currentLevel.gap = 15;
     currentLevel.ground2Height = 23; // Reset ground2 height to initial value
     
+    // Reset ground2 image to original
+    ground2Img.src = 'img/Ground2.png';
+    
     // Update level display
     if (levelDisplayEl) {
         levelDisplayEl.textContent = `Level ${currentLevelNumber}`;
@@ -1428,6 +1432,14 @@ nextLevelButtonEl.addEventListener('click', () => {
     currentLevelNumber++;
     currentLevel.gap += 5;
     currentLevel.ground2Height = Math.max(5, currentLevel.ground2Height - 2); // Lower ground2, minimum 5m
+    
+    // Change ground2 image for level 5 and above
+    if (currentLevelNumber >= 5) {
+        ground2Img.src = 'img/Ground2(level5).png';
+    }
+    if (currentLevelNumber >= 8){
+        ground2Img.src = 'img/Ground2(level8).png';
+    }
     
     // Update level display
     if (levelDisplayEl) {
