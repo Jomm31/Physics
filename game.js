@@ -789,12 +789,16 @@ function updatePhysics(dt) {
     car.worldX += car.vx * dt;
     car.worldY += car.vy * dt;
 
-    // Random angular jitter to keep the spin lively
-    const angularJitter = (Math.random() - 0.5) * AIR_SPIN_NOISE * dt;
-    car.angularVelocity += angularJitter;
-
-    // Manual control hook: adjust car.angularVelocity here in the future.
-
+    // Calculate the trajectory angle from velocity vector
+    // The car should naturally nose-down to follow its parabolic trajectory
+    const trajectoryAngle = Math.atan2(car.vy, car.vx);
+    
+    // Smoothly rotate the car to align with trajectory (realistic physics)
+    // Use a spring-like approach to pull rotation toward trajectory angle
+    const TRAJECTORY_STIFFNESS = 5;  // How quickly car aligns with trajectory
+    const angleDiff = trajectoryAngle - car.rotation;
+    car.angularVelocity += angleDiff * TRAJECTORY_STIFFNESS * dt;
+    
     // Apply angular damping so spin stays reasonable
     const dampingFactor = Math.pow(ANGULAR_DAMPING, (dt * ANGULAR_DAMPING_DT));
     car.angularVelocity *= dampingFactor;
