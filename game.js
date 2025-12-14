@@ -300,23 +300,43 @@ function updateCamera(dt) {
     
     const horizontalScale = levelMetrics.horizontalScale;
     
-    if (simulation.isRunning || simulation.hasFinished) {
-        // Calculate car center position in screen coordinates
-        const carCenterX = levelMetrics.ground1X + car.worldX * horizontalScale + car.width / 2;
-        const carCenterY = simulation.success 
-            ? levelMetrics.ground2Y - car.height / 2 + CAR_GROUND_OFFSET * SCALE
-            : levelMetrics.ground1Y - car.height / 2 + CAR_GROUND_OFFSET * SCALE + car.worldY * SCALE;
-        
-        // Target camera to center on car
-        camera.targetX = carCenterX - INTERNAL_WIDTH / 2 / camera.zoom;
-        camera.targetY = carCenterY - INTERNAL_HEIGHT / 2 / camera.zoom;
+    // Calculate car center position in screen coordinates (needed for both running and finished states)
+    const carCenterX = levelMetrics.ground1X + car.worldX * horizontalScale + car.width / 2;
+    const carCenterY = simulation.success 
+        ? levelMetrics.ground2Y - car.height / 2 + CAR_GROUND_OFFSET * SCALE
+        : levelMetrics.ground1Y - car.height / 2 + CAR_GROUND_OFFSET * SCALE + car.worldY * SCALE;
+    
+    if (simulation.isRunning && !simulation.hasFinished) {
+        // Target camera to center on car while running
+        camera.targetX = carCenterX - INTERNAL_WIDTH / 2 / camera.activeZoom;
+        camera.targetY = carCenterY - INTERNAL_HEIGHT / 2 / camera.activeZoom;
         camera.targetZoom = camera.activeZoom;
         
         // Keep camera in bounds
-        const maxX = INTERNAL_WIDTH * (1 - 1 / camera.zoom);
-        const maxY = INTERNAL_HEIGHT * (1 - 1 / camera.zoom);
+        const maxX = INTERNAL_WIDTH * (1 - 1 / camera.activeZoom);
+        const maxY = INTERNAL_HEIGHT * (1 - 1 / camera.activeZoom);
         camera.targetX = clamp(camera.targetX, 0, maxX);
         camera.targetY = clamp(camera.targetY, 0, maxY);
+    } else if (simulation.hasFinished) {
+        // Car has stopped - slowly zoom out while keeping car in view
+        // As zoom decreases, smoothly transition camera position to show full canvas
+        camera.targetZoom = camera.defaultZoom;
+        
+        // Calculate where camera should be to keep car visible as we zoom out
+        // Blend from car-centered to full canvas view based on current zoom
+        const zoomProgress = (camera.zoom - camera.defaultZoom) / (camera.activeZoom - camera.defaultZoom);
+        const clampedProgress = clamp(zoomProgress, 0, 1);
+        
+        // At full zoom, center on car; at default zoom, show full canvas (0, 0)
+        const carTargetX = carCenterX - INTERNAL_WIDTH / 2 / camera.zoom;
+        const carTargetY = carCenterY - INTERNAL_HEIGHT / 2 / camera.zoom;
+        
+        // Keep in bounds
+        const maxX = Math.max(0, INTERNAL_WIDTH * (1 - 1 / camera.zoom));
+        const maxY = Math.max(0, INTERNAL_HEIGHT * (1 - 1 / camera.zoom));
+        
+        camera.targetX = clamp(carTargetX, 0, maxX) * clampedProgress;
+        camera.targetY = clamp(carTargetY, 0, maxY) * clampedProgress;
     } else {
         // Reset camera when not running
         camera.targetX = 0;
@@ -329,8 +349,9 @@ function updateCamera(dt) {
     camera.x += (camera.targetX - camera.x) * lerpFactor;
     camera.y += (camera.targetY - camera.y) * lerpFactor;
     
-    // Smooth zoom
-    const zoomLerpFactor = 1 - Math.exp(-camera.zoomSpeed * dt);
+    // Smooth zoom (slower for zoom out to make it more gradual)
+    const zoomOutSpeed = simulation.hasFinished ? 1 : camera.zoomSpeed;
+    const zoomLerpFactor = 1 - Math.exp(-zoomOutSpeed * dt);
     camera.zoom += (camera.targetZoom - camera.zoom) * zoomLerpFactor;
 }
 
@@ -1000,6 +1021,15 @@ function computePhysicsData() {
     
     const kineticEnergy = 0.5 * mass * takeoffVelocity * takeoffVelocity;  // KE = ½mv² (Joules)
     const minForceNeeded = mass * minAccelToSucceed;  // Minimum force to succeed
+    
+    // Final velocity when landing on ground2
+    // v_f = v_i + g*t (initial vertical velocity is 0 at takeoff)
+    const finalVerticalVelocity = effectiveGravity * fallTime;  // Vertical velocity at landing
+    const finalVelocity = Math.sqrt(takeoffVelocity * takeoffVelocity + finalVerticalVelocity * finalVerticalVelocity);  // Total velocity magnitude
+    
+    // Height fallen using kinematic equation: h = v₀t + ½gt²
+    // Since initial vertical velocity v₀ = 0, this simplifies to h = ½gt²
+    const heightFallen = 0.5 * effectiveGravity * fallTime * fallTime;
 
     return {
         acceleration,
@@ -1021,7 +1051,10 @@ function computePhysicsData() {
         effectiveGravity,
         effectiveWeight,
         kineticEnergy,
-        minForceNeeded
+        minForceNeeded,
+        finalVerticalVelocity,
+        finalVelocity,
+        heightFallen
     };
 }
 
@@ -1056,6 +1089,9 @@ function refreshPhysicsDisplays(data, statusText) {
         buildOptionalLine('Kinetic Energy', data.kineticEnergy, (v) => `${(v / 1000).toFixed(2)} kJ`),
         buildOptionalLine('Acceleration Time', data.timeToTakeoff, (v) => `${v.toFixed(2)} s`),
         buildOptionalLine('Air Time', data.fallTime, (v) => `${v.toFixed(2)} s`),
+        buildOptionalLine('Final Vertical Velocity', data.finalVerticalVelocity, (v) => `${v.toFixed(2)} m/s`),
+        buildOptionalLine('Final Velocity (landing)', data.finalVelocity, (v) => `${v.toFixed(2)} m/s`),
+        buildOptionalLine('Height Fallen', data.heightFallen, (v) => `${v.toFixed(2)} m`),
         buildOptionalLine(
             'Horizontal Travel',
             data.horizontalDistance,
@@ -1131,8 +1167,25 @@ function refreshPhysicsDisplays(data, statusText) {
                 <p class="result">x = <strong>${data.horizontalDistance.toFixed(2)} m</strong></p>
             </div>
             
+            <div class="calc-section">
+                <h5>8. Final Velocity at Landing</h5>
+                <p class="formula">v_fy = v_iy + g × t₂  (initial vertical velocity = 0)</p>
+                <p class="values">v_fy = 0 + ${data.effectiveGravity.toFixed(2)} × ${data.fallTime.toFixed(2)}</p>
+                <p class="result">v_fy = <strong>${data.finalVerticalVelocity.toFixed(2)} m/s</strong> (downward)</p>
+                <p class="formula">v_f = √(v_x² + v_fy²)</p>
+                <p class="values">v_f = √(${data.takeoffVelocity.toFixed(2)}² + ${data.finalVerticalVelocity.toFixed(2)}²)</p>
+                <p class="result">v_f = <strong>${data.finalVelocity.toFixed(2)} m/s</strong> (total speed at impact)</p>
+            </div>
+            
+            <div class="calc-section">
+                <h5>9. Height Fallen (Vertical Displacement)</h5>
+                <p class="formula">h = v₀t + ½gt²  (initial vertical velocity v₀ = 0)</p>
+                <p class="values">h = 0 + ½ × ${data.effectiveGravity.toFixed(2)} × ${data.fallTime.toFixed(2)}²</p>
+                <p class="result">h = <strong>${data.heightFallen.toFixed(2)} m</strong></p>
+            </div>
+            
             <div class="calc-section highlight">
-                <h5>8. Minimum Requirements to Succeed</h5>
+                <h5>10. Minimum Requirements to Succeed</h5>
                 <p class="formula">v_min = gap / t₂ = ${data.requiredHorizontalMin.toFixed(2)} / ${data.fallTime.toFixed(2)} = ${data.requiredVelocity.toFixed(2)} m/s</p>
                 <p class="formula">a_min = v_min² / (2 × d)</p>
                 <p class="values">a_min = ${data.requiredVelocity.toFixed(2)}² / (2 × ${data.runDistance.toFixed(2)})</p>
