@@ -148,17 +148,17 @@ const carWheelImages = {};
 // frontWheel and rearWheel: { x: percentage from left, y: percentage from top, size: wheel size as percentage of car height }
 const carConfigs = [
     {
-        name: "Burner",
-        bodyImage: "img/carsNoWheels/Burner.png",
-        wheelImage: "img/wheels/BurnerWheels.png",
-        frontWheel: { x: 0.76, y: 0.77, size: 0.46 },
-        rearWheel: { x: 0.195, y: 0.77, size: 0.35 }
-    },{
         name: "Formula-1",
         bodyImage: "img/carsNoWheels/Formula-1.png",
         wheelImage: "img/wheels/Formula-1Wheels.png",
         frontWheel: { x: 0.766, y: 0.67, size: 0.56 },
         rearWheel: { x: 0.12, y: 0.67, size: 0.56 }
+    },{
+        name: "Burner",
+        bodyImage: "img/carsNoWheels/Burner.png",
+        wheelImage: "img/wheels/BurnerWheels.png",
+        frontWheel: { x: 0.76, y: 0.77, size: 0.46 },
+        rearWheel: { x: 0.195, y: 0.77, size: 0.35 }
     },{
         name: "Jeep Wrangler",
         bodyImage: "img/carsNoWheels/Jeep Wrangler.png",
@@ -245,17 +245,17 @@ let selectedCar = 0;
 let chosenAcceleration = 9; // Will be updated based on car and slider
 
 const cars = [
-    { name: "Burner", minAcceleration: 3, maxAcceleration: 9, mass: 900 },
     { name: "Formula-1", minAcceleration: 5, maxAcceleration: 14, mass: 800 },
+    { name: "Burner", minAcceleration: 3, maxAcceleration: 9, mass: 900 },
     { name: "Jeep Wrangler", minAcceleration: 2, maxAcceleration: 4, mass: 2000 },
-    { name: "McLaren P1", minAcceleration: 4, maxAcceleration: 10, mass: 1500 },
-    { name: "Nissan GT-R R35", minAcceleration: 3, maxAcceleration: 9, mass: 1700 },
-    { name: "Ram 1500", minAcceleration: 2, maxAcceleration: 5, mass: 2500 },
-    { name: "Scroom", minAcceleration: 3, maxAcceleration: 7, mass: 1200 },
-    { name: "Shelby Cobra Daytona", minAcceleration: 3, maxAcceleration: 8, mass: 1100 },
+    { name: "McLaren P1", minAcceleration: 4, maxAcceleration: 10, mass: 950 },
+    { name: "Nissan GT-R R35", minAcceleration: 3, maxAcceleration: 9, mass: 1000 },
+    { name: "Ram 1500", minAcceleration: 2, maxAcceleration: 5, mass: 2000 },
+    { name: "Scroom", minAcceleration: 3, maxAcceleration: 7, mass: 1100 },
+    { name: "Shelby Cobra Daytona", minAcceleration: 3, maxAcceleration: 8, mass: 1000 },
     { name: "Supra-1", minAcceleration: 5, maxAcceleration: 13, mass: 1500 },
-    { name: "VW Golf Mk1", minAcceleration: 1, maxAcceleration: 3, mass: 1400 },
-    { name: "Z-Spider", minAcceleration: 4, maxAcceleration: 10, mass: 1100 }
+    { name: "VW Golf Mk1", minAcceleration: 1, maxAcceleration: 3, mass: 980 },
+    { name: "Z-Spider", minAcceleration: 4, maxAcceleration: 11, mass: 990 }
 ];
 
 // -----------------------------------------------------------------------------
