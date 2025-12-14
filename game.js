@@ -1094,6 +1094,7 @@ function refreshPhysicsDisplays(data, statusText) {
         buildOptionalLine('Car Mass', data.mass, (v) => `${v.toLocaleString()} kg`),
         buildOptionalLine('Acceleration', data.acceleration, (v) => `${v.toFixed(2)} m/s²`),
         buildOptionalLine('Engine Force', data.force, (v) => `${v.toLocaleString()} N`),
+        buildOptionalLine('Weight', data.weight, (v) => `${v.toLocaleString()} N`),
         buildOptionalLine('Run-up Distance', data.runDistance, (v) => `${v.toFixed(2)} m`),
         buildOptionalLine('Takeoff Speed', data.takeoffVelocity, (v) => `${v.toFixed(2)} m/s`),
         buildOptionalLine('Kinetic Energy', data.kineticEnergy, (v) => `${(v / 1000).toFixed(2)} kJ`),
@@ -1134,42 +1135,49 @@ function refreshPhysicsDisplays(data, statusText) {
             </div>
             
             <div class="calc-section">
-                <h5>2. Takeoff Speed (v)</h5>
+                <h5>2. Weight (W)</h5>
+                <p class="formula">W = m × g</p>
+                <p class="values">W = ${data.mass.toLocaleString()} × ${GRAVITY}</p>
+                <p class="result">W = <strong>${data.weight.toLocaleString()} N</strong> (gravitational force pulling car down)</p>
+            </div>
+            
+            <div class="calc-section">
+                <h5>3. Takeoff Speed (v)</h5>
                 <p class="formula">v = √(2 × a × d)</p>
                 <p class="values">v = √(2 × ${data.acceleration.toFixed(2)} × ${data.runDistance.toFixed(2)})</p>
                 <p class="result">v = <strong>${data.takeoffVelocity.toFixed(2)} m/s</strong></p>
             </div>
             
             <div class="calc-section">
-                <h5>3. Kinetic Energy at Takeoff (KE)</h5>
+                <h5>4. Kinetic Energy at Takeoff (KE)</h5>
                 <p class="formula">KE = ½ × m × v²</p>
                 <p class="values">KE = ½ × ${data.mass.toLocaleString()} × ${data.takeoffVelocity.toFixed(2)}²</p>
                 <p class="result">KE = <strong>${(data.kineticEnergy / 1000).toFixed(2)} kJ</strong></p>
             </div>
             
             <div class="calc-section">
-                <h5>4. Acceleration Time (t₁)</h5>
+                <h5>5. Acceleration Time (t₁)</h5>
                 <p class="formula">t₁ = v / a</p>
                 <p class="values">t₁ = ${data.takeoffVelocity.toFixed(2)} / ${data.acceleration.toFixed(2)}</p>
                 <p class="result">t₁ = <strong>${data.timeToTakeoff.toFixed(2)} s</strong></p>
             </div>
             
             <div class="calc-section">
-                <h5>5. Air Time (t₂)</h5>
+                <h5>6. Air Time (t₂)</h5>
                 <p class="formula">t₂ = √(2 × h / g)</p>
                 <p class="values">t₂ = √(2 × ${data.dropHeight.toFixed(2)} / ${GRAVITY})</p>
                 <p class="result">t₂ = <strong>${data.fallTime.toFixed(2)} s</strong></p>
             </div>
             
             <div class="calc-section">
-                <h5>6. Horizontal Distance (x)</h5>
+                <h5>7. Horizontal Distance (x)</h5>
                 <p class="formula">x = v × t₂</p>
                 <p class="values">x = ${data.takeoffVelocity.toFixed(2)} × ${data.fallTime.toFixed(2)}</p>
                 <p class="result">x = <strong>${data.horizontalDistance.toFixed(2)} m</strong></p>
             </div>
             
             <div class="calc-section">
-                <h5>7. Final Velocity at Landing</h5>
+                <h5>8. Final Velocity at Landing</h5>
                 <p class="formula">v_fy = v_iy + g × t₂  (initial vertical velocity = 0)</p>
                 <p class="values">v_fy = 0 + ${GRAVITY} × ${data.fallTime.toFixed(2)}</p>
                 <p class="result">v_fy = <strong>${data.finalVerticalVelocity.toFixed(2)} m/s</strong> (downward)</p>
@@ -1179,14 +1187,14 @@ function refreshPhysicsDisplays(data, statusText) {
             </div>
             
             <div class="calc-section">
-                <h5>8. Height Fallen (Vertical Displacement)</h5>
+                <h5>9. Height Fallen (Vertical Displacement)</h5>
                 <p class="formula">h = v₀t + ½gt²  (initial vertical velocity v₀ = 0)</p>
                 <p class="values">h = 0 + ½ × ${GRAVITY} × ${data.fallTime.toFixed(2)}²</p>
                 <p class="result">h = <strong>${data.heightFallen.toFixed(2)} m</strong></p>
             </div>
             
             <div class="calc-section highlight">
-                <h5>9. Minimum Requirements to Succeed</h5>
+                <h5>10. Minimum Requirements to Succeed</h5>
                 <p class="formula">v_min = gap / t₂ = ${data.requiredHorizontalMin.toFixed(2)} / ${data.fallTime.toFixed(2)} = ${data.requiredVelocity.toFixed(2)} m/s</p>
                 <p class="formula">a_min = v_min² / (2 × d)</p>
                 <p class="values">a_min = ${data.requiredVelocity.toFixed(2)}² / (2 × ${data.runDistance.toFixed(2)})</p>
