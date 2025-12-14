@@ -94,7 +94,8 @@ const simulation = {
     takeoffWorldX: 0,
     takeoffVelocity: 0,
     landDropHeight: 0,
-    landTrackEnd: 0
+    landTrackEnd: 0,
+    landingPositionOnGround2: 0  // How many meters into Ground 2 the car landed
 };
 
 // Camera system for following the car
@@ -648,7 +649,8 @@ function handleLanding(outcome) {
         currentVy: car.vy,
         rotation: car.rotation,
         angularVelocity: car.angularVelocity,
-        success
+        success,
+        landingPositionOnGround2: simulation.landingPositionOnGround2
     };
 
     let statusText = 'Result: ❌ Crash!';
@@ -661,6 +663,10 @@ function handleLanding(outcome) {
         simulation.timeSinceLaunch = 0;
         simulation.landDropHeight = dropToGround2;
         simulation.landTrackEnd = ground2End - getCarLengthMeters();
+        
+        // Calculate how many meters into Ground 2 the car landed
+        // Car front position minus start of Ground 2
+        simulation.landingPositionOnGround2 = Math.max(0, carFrontX - ground2Start);
 
         const minX = ground2Start - getCarLengthMeters();
         const maxX = simulation.landTrackEnd;
@@ -671,7 +677,8 @@ function handleLanding(outcome) {
         car.angularVelocity = 0;
         car.rotation = 0;
 
-        statusText = 'Result: ✅ Landed safely on Ground 2!';
+        const landingMeters = simulation.landingPositionOnGround2.toFixed(2);
+        statusText = `Result: ✅ Landed safely at ${landingMeters}m into Ground 2!`;
     } else {
         simulation.isRunning = false;
         simulation.hasFinished = true;
@@ -1087,8 +1094,6 @@ function refreshPhysicsDisplays(data, statusText) {
         buildOptionalLine('Car Mass', data.mass, (v) => `${v.toLocaleString()} kg`),
         buildOptionalLine('Acceleration', data.acceleration, (v) => `${v.toFixed(2)} m/s²`),
         buildOptionalLine('Engine Force', data.force, (v) => `${v.toLocaleString()} N`),
-        buildOptionalLine('Effective Gravity', data.effectiveGravity, (v) => `${v.toFixed(2)} m/s²`),
-        buildOptionalLine('Effective Weight', data.effectiveWeight, (v) => `${v.toLocaleString()} N`),
         buildOptionalLine('Run-up Distance', data.runDistance, (v) => `${v.toFixed(2)} m`),
         buildOptionalLine('Takeoff Speed', data.takeoffVelocity, (v) => `${v.toFixed(2)} m/s`),
         buildOptionalLine('Kinetic Energy', data.kineticEnergy, (v) => `${(v / 1000).toFixed(2)} kJ`),
@@ -1102,6 +1107,7 @@ function refreshPhysicsDisplays(data, statusText) {
             data.horizontalDistance,
             (v) => `${v.toFixed(2)} m (needs ${data.requiredHorizontalMin.toFixed(2)}-${data.requiredHorizontalMax.toFixed(2)} m)`
         ),
+        buildOptionalLine('Landing Position', data.landingPositionOnGround2, (v) => `${v.toFixed(2)} m into Ground 2`),
         buildOptionalLine('Current Vx', data.currentVx, (v) => `${v.toFixed(2)} m/s`),
         buildOptionalLine('Current Vy', data.currentVy, (v) => `${v.toFixed(2)} m/s`),
         buildOptionalLine('Rotation', data.rotation, (v) => `${toDegrees(v).toFixed(1)}°`),
@@ -1128,54 +1134,44 @@ function refreshPhysicsDisplays(data, statusText) {
             </div>
             
             <div class="calc-section">
-                <h5>2. Effective Gravity & Weight (in air)</h5>
-                <p class="formula">g_eff = g × (1 + (m/m_ref - 1) × factor)</p>
-                <p class="values">g_eff = ${GRAVITY} × (1 + (${data.mass.toLocaleString()}/${REFERENCE_MASS} - 1) × ${MASS_GRAVITY_FACTOR})</p>
-                <p class="result">g_eff = <strong>${data.effectiveGravity.toFixed(2)} m/s²</strong></p>
-                <p class="formula">W_eff = m × g_eff</p>
-                <p class="values">W_eff = ${data.mass.toLocaleString()} × ${data.effectiveGravity.toFixed(2)}</p>
-                <p class="result">W_eff = <strong>${data.effectiveWeight.toLocaleString()} N</strong> (pulling car down while airborne)</p>
-            </div>
-            
-            <div class="calc-section">
-                <h5>3. Takeoff Speed (v)</h5>
+                <h5>2. Takeoff Speed (v)</h5>
                 <p class="formula">v = √(2 × a × d)</p>
                 <p class="values">v = √(2 × ${data.acceleration.toFixed(2)} × ${data.runDistance.toFixed(2)})</p>
                 <p class="result">v = <strong>${data.takeoffVelocity.toFixed(2)} m/s</strong></p>
             </div>
             
             <div class="calc-section">
-                <h5>4. Kinetic Energy at Takeoff (KE)</h5>
+                <h5>3. Kinetic Energy at Takeoff (KE)</h5>
                 <p class="formula">KE = ½ × m × v²</p>
                 <p class="values">KE = ½ × ${data.mass.toLocaleString()} × ${data.takeoffVelocity.toFixed(2)}²</p>
                 <p class="result">KE = <strong>${(data.kineticEnergy / 1000).toFixed(2)} kJ</strong></p>
             </div>
             
             <div class="calc-section">
-                <h5>5. Acceleration Time (t₁)</h5>
+                <h5>4. Acceleration Time (t₁)</h5>
                 <p class="formula">t₁ = v / a</p>
                 <p class="values">t₁ = ${data.takeoffVelocity.toFixed(2)} / ${data.acceleration.toFixed(2)}</p>
                 <p class="result">t₁ = <strong>${data.timeToTakeoff.toFixed(2)} s</strong></p>
             </div>
             
             <div class="calc-section">
-                <h5>6. Air Time (t₂)</h5>
+                <h5>5. Air Time (t₂)</h5>
                 <p class="formula">t₂ = √(2 × h / g)</p>
                 <p class="values">t₂ = √(2 × ${data.dropHeight.toFixed(2)} / ${GRAVITY})</p>
                 <p class="result">t₂ = <strong>${data.fallTime.toFixed(2)} s</strong></p>
             </div>
             
             <div class="calc-section">
-                <h5>7. Horizontal Distance (x)</h5>
+                <h5>6. Horizontal Distance (x)</h5>
                 <p class="formula">x = v × t₂</p>
                 <p class="values">x = ${data.takeoffVelocity.toFixed(2)} × ${data.fallTime.toFixed(2)}</p>
                 <p class="result">x = <strong>${data.horizontalDistance.toFixed(2)} m</strong></p>
             </div>
             
             <div class="calc-section">
-                <h5>8. Final Velocity at Landing</h5>
+                <h5>7. Final Velocity at Landing</h5>
                 <p class="formula">v_fy = v_iy + g × t₂  (initial vertical velocity = 0)</p>
-                <p class="values">v_fy = 0 + ${data.effectiveGravity.toFixed(2)} × ${data.fallTime.toFixed(2)}</p>
+                <p class="values">v_fy = 0 + ${GRAVITY} × ${data.fallTime.toFixed(2)}</p>
                 <p class="result">v_fy = <strong>${data.finalVerticalVelocity.toFixed(2)} m/s</strong> (downward)</p>
                 <p class="formula">v_f = √(v_x² + v_fy²)</p>
                 <p class="values">v_f = √(${data.takeoffVelocity.toFixed(2)}² + ${data.finalVerticalVelocity.toFixed(2)}²)</p>
@@ -1183,14 +1179,14 @@ function refreshPhysicsDisplays(data, statusText) {
             </div>
             
             <div class="calc-section">
-                <h5>9. Height Fallen (Vertical Displacement)</h5>
+                <h5>8. Height Fallen (Vertical Displacement)</h5>
                 <p class="formula">h = v₀t + ½gt²  (initial vertical velocity v₀ = 0)</p>
                 <p class="values">h = 0 + ½ × ${GRAVITY} × ${data.fallTime.toFixed(2)}²</p>
                 <p class="result">h = <strong>${data.heightFallen.toFixed(2)} m</strong></p>
             </div>
             
             <div class="calc-section highlight">
-                <h5>10. Minimum Requirements to Succeed</h5>
+                <h5>9. Minimum Requirements to Succeed</h5>
                 <p class="formula">v_min = gap / t₂ = ${data.requiredHorizontalMin.toFixed(2)} / ${data.fallTime.toFixed(2)} = ${data.requiredVelocity.toFixed(2)} m/s</p>
                 <p class="formula">a_min = v_min² / (2 × d)</p>
                 <p class="values">a_min = ${data.requiredVelocity.toFixed(2)}² / (2 × ${data.runDistance.toFixed(2)})</p>
