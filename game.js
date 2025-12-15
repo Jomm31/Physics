@@ -782,10 +782,14 @@ function updatePhysics(dt) {
             simulation.isRunning = false;
             simulation.hasFinished = true;
             
-            // Show next level button on successful landing
+            // Show next level and restart buttons on successful landing
             const nextLevelBtn = document.getElementById('nextLevelButton');
+            const restartBtn = document.getElementById('restartButton');
             if (nextLevelBtn) {
                 nextLevelBtn.style.display = 'block';
+            }
+            if (restartBtn) {
+                restartBtn.style.display = 'block';
             }
         }
         return;
@@ -1435,8 +1439,9 @@ startButtonEl.addEventListener('click', () => {
 
 // Restart button click handler
 restartButtonEl.addEventListener('click', () => {
-    // Hide restart button
+    // Hide both buttons
     restartButtonEl.style.display = 'none';
+    nextLevelButtonEl.style.display = 'none';
     
     // Reset to level 1
     currentLevelNumber = 1;
@@ -1470,8 +1475,9 @@ restartButtonEl.addEventListener('click', () => {
 
 // Next Level button click handler
 nextLevelButtonEl.addEventListener('click', () => {
-    // Hide next level button
+    // Hide both buttons
     nextLevelButtonEl.style.display = 'none';
+    restartButtonEl.style.display = 'none';
     
     // Increase level number, gap, and lower ground2 height
     currentLevelNumber++;
