@@ -128,6 +128,11 @@ let car = {
     angularVelocity: 0
 };
 
+// Path tracking for trajectory visualization
+let carPath = [];  // Array of {x, y} screen coordinates
+const PATH_SAMPLE_INTERVAL = 0.05;  // Sample path every 50ms
+let lastPathSampleTime = 0;
+
 const DEFAULT_CAR_ASPECT = 120 / 240;
 
 // -----------------------------------------------------------------------------
@@ -488,6 +493,17 @@ function updateCarScreenPosition() {
     } else {
         car.y = baseYGround1 + car.worldY * SCALE;
     }
+    
+    // Sample path points for trajectory visualization
+    if (simulation.isRunning && !simulation.hasFinished) {
+        const currentTime = simulation.elapsedTime;
+        if (currentTime - lastPathSampleTime >= PATH_SAMPLE_INTERVAL) {
+            const centerX = car.x + car.width / 2;
+            const centerY = car.y + car.height / 2;
+            carPath.push({ x: centerX, y: centerY });
+            lastPathSampleTime = currentTime;
+        }
+    }
 }
 
 function drawCar() {
@@ -495,6 +511,23 @@ function drawCar() {
     ctx.save();
     ctx.scale(camera.zoom, camera.zoom);
     ctx.translate(-camera.x, -camera.y);
+    
+    // Draw the car path/trajectory first (behind the car)
+    if (carPath.length > 1) {
+        ctx.strokeStyle = '#FF6B35';  // Orange color for path
+        ctx.lineWidth = 3;
+        ctx.setLineDash([10, 8]);  // Dashed line
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        
+        ctx.beginPath();
+        ctx.moveTo(carPath[0].x, carPath[0].y);
+        for (let i = 1; i < carPath.length; i++) {
+            ctx.lineTo(carPath[i].x, carPath[i].y);
+        }
+        ctx.stroke();
+        ctx.setLineDash([]);  // Reset dash pattern
+    }
     
     const centerX = car.x + car.width / 2;
     const centerY = car.y + car.height / 2;
@@ -588,6 +621,10 @@ function resetSimulationState() {
     
     // Reset wheel rotation
     wheelRotation = 0;
+    
+    // Reset path tracking
+    carPath = [];
+    lastPathSampleTime = 0;
 }
 
 function startSimulation() {
